@@ -23,7 +23,7 @@ vars:
   # renovate: datasource=github-releases depName=PCRE2Project/pcre2 extractVersion=^pcre2-(?<version>.+)$
   PCRE2_VERSION: '10.49'
   # renovate: datasource=gitlab-tags depName=GNOME/glib registryUrl=https://gitlab.gnome.org
-  GLIB_VERSION: '2.88.4'
+  GLIB_VERSION: '2.90.1'
   # renovate: datasource=gitlab-tags depName=pixman/pixman registryUrl=https://gitlab.freedesktop.org extractVersion=^pixman-(?<version>.+)$
   PIXMAN_VERSION: '0.46.4'
   # renovate: datasource=gitlab-tags depName=slirp/libslirp registryUrl=https://gitlab.freedesktop.org extractVersion=^v(?<version>.+)$
