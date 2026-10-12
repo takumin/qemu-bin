@@ -1,0 +1,117 @@
+name: Setup
+on:
+  workflow_call:
+    inputs:
+      build-version:
+        default: ""
+        required: false
+        type: string
+    outputs:
+      build-version:
+        value: ${{ jobs.setup.outputs.version }}
+      release-tag:
+        value: ${{ jobs.setup.outputs.tag }}
+      release:
+        value: ${{ jobs.setup.outputs.release }}
+      fingerprint:
+        value: ${{ jobs.setup.outputs.fingerprint }}
+      components:
+        value: ${{ jobs.setup.outputs.components }}
+permissions: {}
+concurrency:
+  group: setup-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+jobs:
+  setup:
+    name: Setup
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    env:
+      BUILD_VERSION: ${{ inputs.build-version }}
+    outputs:
+      version: ${{ steps.version.outputs.result }}
+      tag: ${{ steps.tag.outputs.result }}
+      release: ${{ steps.release.outputs.result }}
+      fingerprint: ${{ steps.fingerprint.outputs.result }}
+      components: ${{ steps.components.outputs.result }}
+    steps:
+    - name: Checkout
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+        sparse-checkout: |-
+          .aqua
+          .github
+          src
+          tasks
+    - name: Setup aqua
+      uses: aquaproj/aqua-installer@82d0e83878a8657c4a6f2ff1755d3bfbfc67f329 # v4.1.0
+      with:
+        aqua_version: v2.64.0
+    - name: Check valid version
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      shell: bash -euo pipefail {0}
+      run: |-
+        task version:check
+    - name: Get build version
+      id: version
+      shell: bash -euo pipefail {0}
+      run: echo "result=$(task build:version)" >> "$GITHUB_OUTPUT"
+    - name: Get release tag
+      id: tag
+      env:
+        BUILD_VERSION: ${{ steps.version.outputs.result }}
+      shell: bash -euo pipefail {0}
+      run: echo "result=$(task build:tag)" >> "$GITHUB_OUTPUT"
+    - name: Get build fingerprint
+      id: fingerprint
+      shell: bash -euo pipefail {0}
+      run: echo "result=$(task build:fingerprint)" >> "$GITHUB_OUTPUT"
+    - name: Get component versions
+      id: components
+      env:
+        BUILD_VERSION: ${{ steps.version.outputs.result }}
+      shell: bash -euo pipefail {0}
+      run: echo "result=$(task build:components)" >> "$GITHUB_OUTPUT"
+    - name: Check release
+      id: release
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        BUILD_VERSION: ${{ steps.version.outputs.result }}
+        RELEASE_TAG: ${{ steps.tag.outputs.result }}
+        FINGERPRINT: ${{ steps.fingerprint.outputs.result }}
+      shell: bash -euo pipefail {0}
+      run: |-
+        LATEST_VERSION="$(task version:latest)"
+        PREVIOUS="$(gh release view -R "${GITHUB_REPOSITORY}" --json body -q .body 2>/dev/null \
+          | sed -n 's/^Build inputs: .\([0-9a-f]\{64\}\).$/\1/p' || true)"
+        RELEASE=false
+        if [[ "${BUILD_VERSION}" != "${LATEST_VERSION}" ]]; then
+          echo "::notice::QEMU ${BUILD_VERSION} is not the latest version, skip release"
+        elif [[ "${FINGERPRINT}" == "${PREVIOUS}" ]]; then
+          echo "::notice::Build inputs are unchanged since the latest release, skip release"
+        elif gh release view "${RELEASE_TAG}" -R "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+          echo "::notice::${RELEASE_TAG} already exists, the changes are released by the next scheduled run"
+        else
+          RELEASE=true
+        fi
+        echo "result=${RELEASE}" >> "$GITHUB_OUTPUT"
+    - name: Restore setup build aqua cache
+      id: aqua-cache-restore
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        key: aqua-${{ hashFiles('.aqua/pkgs/zig.yaml', '.aqua/pkgs/ninja.yaml', '.aqua/pkgs/uv.yaml') }}
+        path: ~/.local/share/aquaproj-aqua/
+    - name: Fetch aqua tools
+      shell: bash -euo pipefail {0}
+      run: |-
+        task tool:aqua:tag:zig tool:aqua:tag:ninja tool:aqua:tag:uv
+    - name: Save setup build aqua cache
+      if: github.ref == 'refs/heads/main' && steps.aqua-cache-restore.outputs.cache-hit != 'true'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        key: ${{ steps.aqua-cache-restore.outputs.cache-primary-key }}
+        path: ~/.local/share/aquaproj-aqua/

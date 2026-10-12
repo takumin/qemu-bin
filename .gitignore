@@ -1,0 +1,6 @@
+# go-task
+.task/
+.stat/
+
+# build
+.build/

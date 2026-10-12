@@ -1,0 +1,4 @@
+packages:
+- name: ziglang/zig@0.17.0
+  tags:
+  - zig

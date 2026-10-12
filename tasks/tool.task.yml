@@ -1,0 +1,56 @@
+# https://taskfile.dev
+# yaml-language-server: $schema=https://taskfile.dev/schema.json
+
+version: '3'
+
+vars:
+  STATDIR: '{{env "TASK_TEMP_DIR" | default .ROOT_DIR }}/.stat'
+
+set: [pipefail]
+shopt: [globstar]
+
+tasks:
+  default:
+    desc: '{{.TASK}}'
+    silent: true
+    cmds:
+    - task: aqua:all
+
+  statdir:
+    silent: true
+    internal: true
+    cmds:
+    - coreutils mkdir -p '{{.STATDIR}}'
+
+  aqua:
+    internal: true
+    label: aqua:install:{{.TAG}}
+    dir: '{{.ROOT_DIR}}'
+    deps:
+    - statdir
+    sources:
+    - .aqua/aqua.yml
+    - .aqua/pkgs/{{.TAG}}.yaml
+    generates:
+    - '{{.STATDIR}}/.done_aqua:install:{{.TAG}}'
+    cmds:
+    - aqua install {{.ARGS}}
+    - cmd: touch '{{.STATDIR}}/.done_aqua:install:{{.TAG}}'
+      silent: true
+
+  aqua:all:
+    desc: '{{.TASK}}'
+    cmds:
+    - task: aqua
+      vars:
+        TAG: all
+        ARGS: -a
+
+  aqua:tag:*:
+    desc: '{{.TASK}}'
+    cmds:
+    - task: aqua
+      vars:
+        TAG: '{{index .MATCH 0}}'
+        ARGS: -t {{index .MATCH 0}}
+

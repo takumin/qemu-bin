@@ -1,0 +1,41 @@
+{
+	"$schema": "https://docs.renovatebot.com/renovate-schema.json",
+	"extends": [
+		"config:best-practices",
+		"github>aquaproj/aqua-renovate-config#2.13.0",
+		"github>aquaproj/aqua-renovate-config:file#2.13.0(.aqua/.*\\.ya?ml)",
+		"github>aquaproj/aqua-renovate-config:file#2.13.0(.aqua/pkgs/.*\\.ya?ml)"
+	],
+	"timezone": "Asia/Tokyo",
+	"automerge": true,
+	"customManagers": [
+		{
+			"customType": "regex",
+			"managerFilePatterns": ["/^version.json$/"],
+			"matchStrings": ["\"version\": \"(?<currentValue>.*?)\"\n"],
+			"datasourceTemplate": "gitlab-tags",
+			"depNameTemplate": "qemu",
+			"packageNameTemplate": "qemu-project/qemu",
+			"extractVersionTemplate": "^v(?<version>\\d+\\.\\d+\\.\\d+)$"
+		},
+		{
+			"customType": "regex",
+			"managerFilePatterns": ["/^tasks/build\\.task\\.yml$/"],
+			"matchStrings": [
+				"# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)( packageName=(?<packageName>\\S+))?( registryUrl=(?<registryUrl>\\S+))?( extractVersion=(?<extractVersion>\\S+))?\\n\\s+\\w+_VERSION: '(?<currentValue>[^']+)'"
+			]
+		}
+	],
+	"packageRules": [
+		{
+			"description": "Odd minor versions are development releases",
+			"matchDepNames": ["GNOME/glib", "pixman/pixman"],
+			"allowedVersions": "/^\\d+\\.\\d*[02468]\\.\\d+$/"
+		},
+		{
+			"description": "Build dependencies of the release binaries",
+			"matchFileNames": ["tasks/build.task.yml"],
+			"groupName": "bundled libraries"
+		}
+	]
+}

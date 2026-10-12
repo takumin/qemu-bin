@@ -1,0 +1,83 @@
+# https://taskfile.dev
+# yaml-language-server: $schema=https://taskfile.dev/schema.json
+
+version: '3'
+
+vars:
+  REPOSITORY: https://gitlab.com/qemu-project/qemu.git
+
+set: [pipefail]
+shopt: [globstar]
+
+includes:
+  tool:
+    taskfile: tool.task.yml
+    internal: true
+  format:
+    taskfile: format.task.yml
+    internal: true
+
+tasks:
+  default:
+    desc: '{{.TASK}}'
+    silent: true
+    cmds:
+    - task: generate
+
+  tags:
+    desc: '{{.TASK}}'
+    dir: '{{.ROOT_DIR}}'
+    silent: true
+    deps:
+    - task: tool:aqua:tag:coreutils
+    - task: tool:aqua:tag:ripgrep
+    cmds:
+    # v11.1.2 -> 11.1.2, release candidates are excluded
+    - >-
+      git ls-remote --tags --refs '{{.REPOSITORY}}'
+      | coreutils cut -f2
+      | coreutils cut -d/ -f3
+      | rg -r '$1' '^v([0-9]+\.[0-9]+\.[0-9]+)$'
+      | coreutils sort -V
+
+  generate:
+    desc: '{{.TASK}}'
+    dir: '{{.ROOT_DIR}}'
+    deps:
+    - task: tool:aqua:tag:coreutils
+    - task: tool:aqua:tag:jq
+    status:
+    - |-
+      MTIME="$(coreutils stat -c %Y version.json)"
+      NOW="$(coreutils date +%s)"
+      AGE="$(coreutils expr "$NOW" - "$MTIME")"
+      coreutils test 86400 -gt "$AGE"
+    cmds:
+    - >-
+      task version:tags | coreutils tail -n 1 | jq -RM '{version: .}' > version.json
+    - task: format:biome
+
+  check:
+    desc: '{{.TASK}}'
+    dir: '{{.ROOT_DIR}}'
+    deps:
+    - task: tool:aqua:tag:ripgrep
+    status:
+    - coreutils test -z "{{env "BUILD_VERSION"}}"
+    cmds:
+    - task version:tags | rg '^{{env "BUILD_VERSION"}}$'
+
+  latest:
+    desc: '{{.TASK}}'
+    dir: '{{.ROOT_DIR}}'
+    silent: true
+    deps:
+    - task: tool:aqua:tag:jq
+    cmds:
+    - jq -r '.version' version.json
+
+  all:
+    desc: '{{.TASK}}'
+    dir: '{{.ROOT_DIR}}'
+    cmds:
+    - task: tags

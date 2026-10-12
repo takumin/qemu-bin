@@ -1,0 +1,4 @@
+packages:
+- name: google/yamlfmt@v0.21.0
+  tags:
+  - yamlfmt

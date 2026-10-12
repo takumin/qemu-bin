@@ -1,0 +1,26 @@
+# https://taskfile.dev
+# yaml-language-server: $schema=https://taskfile.dev/schema.json
+
+version: '3'
+
+set: [pipefail]
+shopt: [globstar]
+
+includes:
+  tool: ./tasks/tool.task.yml
+  format: ./tasks/format.task.yml
+  lint: ./tasks/lint.task.yml
+  version: ./tasks/version.task.yml
+  build: ./tasks/build.task.yml
+
+tasks:
+  default:
+    desc: '{{.TASK}}'
+    silent: true
+    aliases: [all]
+    cmds:
+    - task: tool
+    - task: format
+    - task: lint
+    - task: version
+    - task: build

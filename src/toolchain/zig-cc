@@ -1,0 +1,27 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+#
+# zig cc wrapper for ZIG_TARGET (e.g. x86_64-linux-gnu.2.27).
+#
+# - zig cc defines NDEBUG for -O1 and above, but QEMU refuses to build with it.
+# - lld rejects version scripts that name undefined symbols (zlib, libffi).
+# - The bundled shared libraries are installed in lib/ next to bin/ and
+#   libexec/, so every binary and library looks them up from $ORIGIN/../lib.
+
+link=1
+for arg in "$@"; do
+	case "${arg}" in
+	-c | -E | -S | -M | -MM) link= ;;
+	esac
+done
+
+if [ -n "${link}" ]; then
+	# shellcheck disable=SC2016
+	set -- -s -Wl,--undefined-version -Wl,-rpath,'$ORIGIN/../lib' "$@"
+fi
+
+exec zig "$(basename "$0" | sed 's/^zig-//')" \
+	-target "${ZIG_TARGET:?ZIG_TARGET is not set}" \
+	-Wno-gcc-install-dir-libstdcxx \
+	-UNDEBUG \
+	"$@"

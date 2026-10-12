@@ -1,0 +1,656 @@
+# https://taskfile.dev
+# yaml-language-server: $schema=https://taskfile.dev/schema.json
+
+version: '3'
+
+set: [pipefail]
+shopt: [globstar]
+
+vars:
+  LATEST_VERSION:
+    sh: coreutils test -f version.json && jq -r '.version' version.json || echo 'unknown'
+  VERSION: '{{env "BUILD_VERSION" | default .LATEST_VERSION}}'
+  BUILD_TARGET: '{{env "BUILD_TARGET" | default "x86_64-linux-gnu"}}'
+  GLIBC_VERSION: '2.27'
+  QEMU_TARGET_LIST: x86_64-softmmu,aarch64-softmmu
+  MATRIX_TARGETS:
+  - aarch64-linux-gnu
+  - x86_64-linux-gnu
+  # renovate: datasource=github-releases depName=madler/zlib extractVersion=^v(?<version>.+)$
+  ZLIB_VERSION: '1.3.2'
+  # renovate: datasource=github-releases depName=libffi/libffi extractVersion=^v(?<version>.+)$
+  LIBFFI_VERSION: '3.8.0'
+  # renovate: datasource=github-releases depName=PCRE2Project/pcre2 extractVersion=^pcre2-(?<version>.+)$
+  PCRE2_VERSION: '10.49'
+  # renovate: datasource=gitlab-tags depName=GNOME/glib registryUrl=https://gitlab.gnome.org
+  GLIB_VERSION: '2.88.4'
+  # renovate: datasource=gitlab-tags depName=pixman/pixman registryUrl=https://gitlab.freedesktop.org extractVersion=^pixman-(?<version>.+)$
+  PIXMAN_VERSION: '0.46.4'
+  # renovate: datasource=gitlab-tags depName=slirp/libslirp registryUrl=https://gitlab.freedesktop.org extractVersion=^v(?<version>.+)$
+  LIBSLIRP_VERSION: '4.9.5'
+  # renovate: datasource=git-tags depName=dtc packageName=https://git.kernel.org/pub/scm/utils/dtc/dtc.git extractVersion=^v(?<version>.+)$
+  DTC_VERSION: '1.8.1'
+  # renovate: datasource=pypi depName=meson
+  MESON_VERSION: '1.12.1'
+  DL_DIR: '{{.ROOT_DIR}}/.build/dl'
+  SRC_DIR: '{{.ROOT_DIR}}/.build/src'
+  WORK_DIR: '{{.ROOT_DIR}}/.build/{{.VERSION}}/{{.BUILD_TARGET}}'
+  SYSROOT: '{{.WORK_DIR}}/sysroot'
+  DIST_DIR: '{{.ROOT_DIR}}/.build/{{.VERSION}}/dist'
+  BINNAME: 'qemu-{{.BUILD_TARGET}}.tar.gz'
+  MESON: uv tool run --from 'meson=={{.MESON_VERSION}}' meson
+  TOOLCHAIN: '{{.ROOT_DIR}}/src/toolchain'
+  # Task does not override variables already set in the environment (PATH,
+  # PKG_CONFIG_PATH), so the wrappers are called by absolute path instead.
+  TOOLS: >-
+    CC='{{.TOOLCHAIN}}/zig-cc'
+    CXX='{{.TOOLCHAIN}}/zig-c++'
+    AR='{{.TOOLCHAIN}}/zig-ar'
+    RANLIB='{{.TOOLCHAIN}}/zig-ranlib'
+
+env:
+  ZIG_TARGET: '{{.BUILD_TARGET}}.{{.GLIBC_VERSION}}'
+  TARGET_SYSROOT: '{{.SYSROOT}}'
+
+includes:
+  tool:
+    taskfile: tool.task.yml
+    internal: true
+
+tasks:
+  default:
+    desc: '{{.TASK}}'
+    silent: true
+    cmds:
+    - task: sha256sum:verify
+
+  matrix:
+    desc: '{{.TASK}}'
+    silent: true
+    deps:
+    - task: tool:aqua:tag:jq
+    cmds:
+    - >-
+      echo '{{ .MATRIX_TARGETS | toJson }}'
+      | jq -cM '{include: map({version: "{{.VERSION}}", target: .})}'
+
+  version:
+    desc: '{{.TASK}}'
+    silent: true
+    cmds:
+    - echo '{{.VERSION}}'
+
+  tag:
+    desc: '{{.TASK}}'
+    silent: true
+    deps:
+    - task: tool:aqua:tag:coreutils
+    cmds:
+    # Release date in JST, e.g. v2026.10.13
+    - TZ=Asia/Tokyo coreutils date +v%Y.%-m.%-d
+
+  fingerprint:
+    desc: '{{.TASK}}'
+    dir: '{{.ROOT_DIR}}'
+    silent: true
+    deps:
+    - task: tool:aqua:tag:coreutils
+    cmds:
+    # Hash of the build inputs, a release is made when it changes
+    - >-
+      coreutils cat
+      version.json
+      tasks/build.task.yml
+      .aqua/pkgs/zig.yaml
+      .aqua/pkgs/ninja.yaml
+      .aqua/pkgs/uv.yaml
+      src/bundle-libs.sh
+      src/toolchain/*
+      | coreutils sha256sum
+      | coreutils cut -d' ' -f1
+
+  components:
+    desc: '{{.TASK}}'
+    silent: true
+    deps:
+    - task: tool:aqua:tag:jq
+    cmds:
+    - >-
+      jq -cnM
+      --arg qemu '{{.VERSION}}'
+      --arg glibc '{{.GLIBC_VERSION}}'
+      --arg glib '{{.GLIB_VERSION}}'
+      --arg pixman '{{.PIXMAN_VERSION}}'
+      --arg libslirp '{{.LIBSLIRP_VERSION}}'
+      --arg dtc '{{.DTC_VERSION}}'
+      --arg zlib '{{.ZLIB_VERSION}}'
+      --arg libffi '{{.LIBFFI_VERSION}}'
+      --arg pcre2 '{{.PCRE2_VERSION}}'
+      '$ARGS.named'
+
+  name:
+    desc: '{{.TASK}}'
+    silent: true
+    cmds:
+    - echo 'qemu-{{.BUILD_TARGET}}'
+
+  binname:
+    desc: '{{.TASK}}'
+    silent: true
+    cmds:
+    - echo '{{.BINNAME}}'
+
+  binpath:
+    desc: '{{.TASK}}'
+    silent: true
+    cmds:
+    - echo '{{.DIST_DIR}}/{{.BINNAME}}'
+
+  ##############################################################################
+  # Sources
+  ##############################################################################
+
+  fetch:
+    internal: true
+    label: 'fetch:{{.FILE}}'
+    run: when_changed
+    status:
+    - coreutils test -f '{{.DL_DIR}}/{{.FILE}}'
+    cmds:
+    - cmd: coreutils mkdir -p '{{.DL_DIR}}'
+      silent: true
+    # TODO: which curl command
+    - curl -fsSLo '{{.DL_DIR}}/{{.FILE}}.tmp' '{{.URL}}'
+    - coreutils mv '{{.DL_DIR}}/{{.FILE}}.tmp' '{{.DL_DIR}}/{{.FILE}}'
+
+  extract:
+    internal: true
+    label: 'extract:{{.NAME}}'
+    run: when_changed
+    deps:
+    - task: tool:aqua:tag:coreutils
+    - task: fetch
+      vars:
+        FILE: '{{.FILE}}'
+        URL: '{{.URL}}'
+    sources:
+    - '{{.DL_DIR}}/{{.FILE}}'
+    generates:
+    - '{{.SRC_DIR}}/{{.NAME}}/.extracted'
+    cmds:
+    - cmd: coreutils rm -rf '{{.SRC_DIR}}/{{.NAME}}'
+      silent: true
+    - cmd: coreutils mkdir -p '{{.SRC_DIR}}/{{.NAME}}'
+      silent: true
+    # TODO: which tar command
+    - tar -xf '{{.DL_DIR}}/{{.FILE}}' -C '{{.SRC_DIR}}/{{.NAME}}' --strip-components 1
+    - cmd: touch '{{.SRC_DIR}}/{{.NAME}}/.extracted'
+      silent: true
+
+  sources:
+    desc: '{{.TASK}}'
+    run: once
+    deps:
+    - task: extract
+      vars:
+        NAME: 'zlib-{{.ZLIB_VERSION}}'
+        FILE: 'zlib-{{.ZLIB_VERSION}}.tar.gz'
+        URL: 'https://github.com/madler/zlib/releases/download/v{{.ZLIB_VERSION}}/zlib-{{.ZLIB_VERSION}}.tar.gz'
+    - task: extract
+      vars:
+        NAME: 'libffi-{{.LIBFFI_VERSION}}'
+        FILE: 'libffi-{{.LIBFFI_VERSION}}.tar.gz'
+        URL: 'https://github.com/libffi/libffi/releases/download/v{{.LIBFFI_VERSION}}/libffi-{{.LIBFFI_VERSION}}.tar.gz'
+    - task: extract
+      vars:
+        NAME: 'pcre2-{{.PCRE2_VERSION}}'
+        FILE: 'pcre2-{{.PCRE2_VERSION}}.tar.bz2'
+        URL: 'https://github.com/PCRE2Project/pcre2/releases/download/pcre2-{{.PCRE2_VERSION}}/pcre2-{{.PCRE2_VERSION}}.tar.bz2'
+    - task: extract
+      vars:
+        NAME: 'glib-{{.GLIB_VERSION}}'
+        FILE: 'glib-{{.GLIB_VERSION}}.tar.xz'
+        URL: >-
+          {{- $v := splitList "." .GLIB_VERSION -}}
+          https://download.gnome.org/sources/glib/{{index $v 0}}.{{index $v 1}}/glib-{{.GLIB_VERSION}}.tar.xz
+    - task: extract
+      vars:
+        NAME: 'pixman-{{.PIXMAN_VERSION}}'
+        FILE: 'pixman-{{.PIXMAN_VERSION}}.tar.gz'
+        URL: 'https://cairographics.org/releases/pixman-{{.PIXMAN_VERSION}}.tar.gz'
+    - task: extract
+      vars:
+        NAME: 'libslirp-{{.LIBSLIRP_VERSION}}'
+        FILE: 'libslirp-{{.LIBSLIRP_VERSION}}.tar.gz'
+        URL: 'https://gitlab.freedesktop.org/slirp/libslirp/-/archive/v{{.LIBSLIRP_VERSION}}/libslirp-v{{.LIBSLIRP_VERSION}}.tar.gz'
+    - task: extract
+      vars:
+        NAME: 'dtc-{{.DTC_VERSION}}'
+        FILE: 'dtc-{{.DTC_VERSION}}.tar.xz'
+        URL: 'https://www.kernel.org/pub/software/utils/dtc/dtc-{{.DTC_VERSION}}.tar.xz'
+    - task: extract
+      vars:
+        NAME: 'qemu-{{.VERSION}}'
+        FILE: 'qemu-{{.VERSION}}.tar.xz'
+        URL: 'https://download.qemu.org/qemu-{{.VERSION}}.tar.xz'
+
+  ##############################################################################
+  # Dependencies (shared libraries installed into the sysroot)
+  ##############################################################################
+
+  toolchain:
+    internal: true
+    run: once
+    deps:
+    - task: tool:aqua:tag:coreutils
+    - task: tool:aqua:tag:zig
+    - task: tool:aqua:tag:ninja
+    - task: tool:aqua:tag:uv
+    cmds:
+    - cmd: coreutils mkdir -p '{{.WORK_DIR}}'
+      silent: true
+    - |-
+      cat > '{{.WORK_DIR}}/cross.ini' <<'EOF'
+      [binaries]
+      c = '{{.TOOLCHAIN}}/zig-cc'
+      cpp = '{{.TOOLCHAIN}}/zig-c++'
+      ar = '{{.TOOLCHAIN}}/zig-ar'
+      ranlib = '{{.TOOLCHAIN}}/zig-ranlib'
+      pkg-config = '{{.TOOLCHAIN}}/zig-pkg-config'
+
+      [properties]
+      needs_exe_wrapper = true
+
+      [host_machine]
+      system = 'linux'
+      cpu_family = '{{index (splitList "-" .BUILD_TARGET) 0}}'
+      cpu = '{{index (splitList "-" .BUILD_TARGET) 0}}'
+      endian = 'little'
+      EOF
+
+  meson:
+    internal: true
+    label: 'meson:{{.NAME}}'
+    dir: '{{.WORK_DIR}}'
+    cmds:
+    - cmd: coreutils rm -rf 'build/{{.NAME}}'
+      silent: true
+    - >-
+      {{.MESON}} setup 'build/{{.NAME}}' '{{.SRC_DIR}}/{{.NAME}}'
+      --cross-file cross.ini
+      --prefix=/usr/local
+      --libdir=lib
+      --buildtype=release
+      --default-library=shared
+      --wrap-mode=nofallback
+      {{.ARGS}}
+    - ninja -C 'build/{{.NAME}}'
+    - DESTDIR='{{.SYSROOT}}' {{.MESON}} install -C 'build/{{.NAME}}' --no-rebuild
+
+  autotools:
+    internal: true
+    label: 'autotools:{{.NAME}}'
+    dir: '{{.WORK_DIR}}'
+    cmds:
+    - cmd: coreutils rm -rf 'build/{{.NAME}}'
+      silent: true
+    - cmd: coreutils mkdir -p 'build/{{.NAME}}'
+      silent: true
+    - >-
+      cd 'build/{{.NAME}}' &&
+      '{{.SRC_DIR}}/{{.NAME}}/configure'
+      --host='{{.BUILD_TARGET}}'
+      --prefix=/usr/local
+      --libdir=/usr/local/lib
+      --enable-shared
+      --disable-static
+      {{.TOOLS}}
+      CFLAGS=-O2
+      {{.ARGS}}
+    - make -C 'build/{{.NAME}}' -j"$(nproc)"
+    - make -C 'build/{{.NAME}}' DESTDIR='{{.SYSROOT}}' install
+    # libtool archives point at /usr/local and are not needed
+    - coreutils rm -f '{{.SYSROOT}}'/usr/local/lib/*.la
+
+  zlib:
+    desc: '{{.TASK}}'
+    run: once
+    dir: '{{.WORK_DIR}}'
+    deps:
+    - toolchain
+    - sources
+    vars:
+      NAME: 'zlib-{{.ZLIB_VERSION}}'
+    sources:
+    - '{{.DL_DIR}}/{{.NAME}}.tar.gz'
+    - '{{.ROOT_DIR}}/src/toolchain/*'
+    generates:
+    - '{{.SYSROOT}}/usr/local/lib/libz.so'
+    cmds:
+    # zlib's configure is not autoconf and builds in the source tree
+    - cmd: coreutils rm -rf 'build/{{.NAME}}'
+      silent: true
+    - cmd: coreutils mkdir -p build
+      silent: true
+    - coreutils cp -a '{{.SRC_DIR}}/{{.NAME}}' 'build/{{.NAME}}'
+    - >-
+      cd 'build/{{.NAME}}' &&
+      {{.TOOLS}} CFLAGS=-O2 CHOST='{{.BUILD_TARGET}}'
+      ./configure --prefix=/usr/local --libdir=/usr/local/lib --shared
+    - make -C 'build/{{.NAME}}' -j"$(nproc)"
+    - make -C 'build/{{.NAME}}' DESTDIR='{{.SYSROOT}}' install
+    - coreutils rm -f '{{.SYSROOT}}/usr/local/lib/libz.a'
+
+  libffi:
+    desc: '{{.TASK}}'
+    run: once
+    deps:
+    - toolchain
+    - sources
+    sources:
+    - '{{.DL_DIR}}/libffi-{{.LIBFFI_VERSION}}.tar.gz'
+    - '{{.ROOT_DIR}}/src/toolchain/*'
+    generates:
+    - '{{.SYSROOT}}/usr/local/lib/libffi.so'
+    cmds:
+    - task: autotools
+      vars:
+        NAME: 'libffi-{{.LIBFFI_VERSION}}'
+        ARGS: >-
+          --disable-docs
+          --disable-multi-os-directory
+
+  pcre2:
+    desc: '{{.TASK}}'
+    run: once
+    deps:
+    - toolchain
+    - sources
+    sources:
+    - '{{.DL_DIR}}/pcre2-{{.PCRE2_VERSION}}.tar.bz2'
+    - '{{.ROOT_DIR}}/src/toolchain/*'
+    generates:
+    - '{{.SYSROOT}}/usr/local/lib/libpcre2-8.so'
+    cmds:
+    - task: autotools
+      vars:
+        NAME: 'pcre2-{{.PCRE2_VERSION}}'
+        ARGS: >-
+          --enable-pcre2-8
+          --disable-pcre2-16
+          --disable-pcre2-32
+          --disable-pcre2grep-libz
+          --disable-pcre2grep-libbz2
+          --disable-pcre2test-libreadline
+
+  glib:
+    desc: '{{.TASK}}'
+    run: once
+    deps:
+    - zlib
+    - libffi
+    - pcre2
+    sources:
+    - '{{.DL_DIR}}/glib-{{.GLIB_VERSION}}.tar.xz'
+    - '{{.SYSROOT}}/usr/local/lib/libz.so'
+    - '{{.SYSROOT}}/usr/local/lib/libffi.so'
+    - '{{.SYSROOT}}/usr/local/lib/libpcre2-8.so'
+    generates:
+    - '{{.SYSROOT}}/usr/local/lib/libglib-2.0.so'
+    cmds:
+    - task: meson
+      vars:
+        NAME: 'glib-{{.GLIB_VERSION}}'
+        ARGS: >-
+          -Dselinux=disabled
+          -Dxattr=false
+          -Dlibmount=disabled
+          -Dman-pages=disabled
+          -Ddtrace=disabled
+          -Dsystemtap=disabled
+          -Dsysprof=disabled
+          -Ddocumentation=false
+          -Dtests=false
+          -Dinstalled_tests=false
+          -Dnls=disabled
+          -Dlibelf=disabled
+          -Dintrospection=disabled
+          -Dglib_debug=disabled
+
+  pixman:
+    desc: '{{.TASK}}'
+    run: once
+    deps:
+    - toolchain
+    - sources
+    sources:
+    - '{{.DL_DIR}}/pixman-{{.PIXMAN_VERSION}}.tar.gz'
+    - '{{.ROOT_DIR}}/src/toolchain/*'
+    generates:
+    - '{{.SYSROOT}}/usr/local/lib/libpixman-1.so'
+    cmds:
+    - task: meson
+      vars:
+        NAME: 'pixman-{{.PIXMAN_VERSION}}'
+        ARGS: >-
+          -Dtests=disabled
+          -Ddemos=disabled
+          -Dgtk=disabled
+          -Dlibpng=disabled
+          -Dopenmp=disabled
+
+  libslirp:
+    desc: '{{.TASK}}'
+    run: once
+    deps:
+    - glib
+    sources:
+    - '{{.DL_DIR}}/libslirp-{{.LIBSLIRP_VERSION}}.tar.gz'
+    - '{{.SYSROOT}}/usr/local/lib/libglib-2.0.so'
+    generates:
+    - '{{.SYSROOT}}/usr/local/lib/libslirp.so'
+    cmds:
+    - task: meson
+      vars:
+        NAME: 'libslirp-{{.LIBSLIRP_VERSION}}'
+
+  dtc:
+    desc: '{{.TASK}}'
+    run: once
+    deps:
+    - toolchain
+    - sources
+    sources:
+    - '{{.DL_DIR}}/dtc-{{.DTC_VERSION}}.tar.xz'
+    - '{{.ROOT_DIR}}/src/toolchain/*'
+    generates:
+    - '{{.SYSROOT}}/usr/local/lib/libfdt.so'
+    cmds:
+    - task: meson
+      vars:
+        NAME: 'dtc-{{.DTC_VERSION}}'
+        ARGS: >-
+          -Dtools=false
+          -Dyaml=disabled
+          -Dvalgrind=disabled
+          -Dpython=disabled
+          -Dtests=false
+
+  ##############################################################################
+  # QEMU
+  ##############################################################################
+
+  binary:
+    desc: '{{.TASK}}'
+    run: once
+    dir: '{{.WORK_DIR}}'
+    deps:
+    - glib
+    - pixman
+    - libslirp
+    - dtc
+    vars:
+      NAME: 'qemu-{{.VERSION}}'
+    sources:
+    - '{{.DL_DIR}}/{{.NAME}}.tar.xz'
+    - '{{.SYSROOT}}/usr/local/lib/*.so'
+    generates:
+    - '{{.WORK_DIR}}/pkg/usr/local/bin/qemu-system-x86_64'
+    cmds:
+    - cmd: coreutils rm -rf 'build/{{.NAME}}' pkg
+      silent: true
+    - cmd: coreutils mkdir -p 'build/{{.NAME}}'
+      silent: true
+    # --cross-prefix only makes configure write a meson cross file, the tools
+    # are given explicitly. libfdt is found with find_library(), not pkg-config.
+    - >-
+      cd 'build/{{.NAME}}' &&
+      {{.TOOLS}} PKG_CONFIG='{{.TOOLCHAIN}}/zig-pkg-config'
+      '{{.SRC_DIR}}/{{.NAME}}/configure'
+      --cross-prefix='{{.BUILD_TARGET}}-'
+      --prefix=/usr/local
+      --target-list='{{.QEMU_TARGET_LIST}}'
+      --extra-cflags='-I{{.SYSROOT}}/usr/local/include'
+      --extra-ldflags='-L{{.SYSROOT}}/usr/local/lib'
+      --disable-docs
+      --disable-werror
+      --disable-rust
+      --disable-modules
+      --disable-plugins
+      --disable-guest-agent
+      --enable-fdt=system
+      --enable-kvm
+      --enable-pixman
+      --enable-slirp
+      --enable-tcg
+      --enable-vnc
+    - make -C 'build/{{.NAME}}' -j"$(nproc)"
+    - make -C 'build/{{.NAME}}' DESTDIR='{{.WORK_DIR}}/pkg' install
+
+  prepare:
+    desc: '{{.TASK}}'
+    dir: '{{.WORK_DIR}}'
+    deps:
+    - binary
+    sources:
+    - '{{.WORK_DIR}}/pkg/**/*'
+    - '{{.ROOT_DIR}}/src/bundle-libs.sh'
+    generates:
+    - '{{.DIST_DIR}}/{{.BINNAME}}'
+    cmds:
+    - cmd: coreutils rm -rf stage
+      silent: true
+    - cmd: coreutils mkdir -p stage/share '{{.DIST_DIR}}'
+      silent: true
+    - coreutils cp -a pkg/usr/local/bin pkg/usr/local/libexec stage/
+    - coreutils cp -a pkg/usr/local/share/qemu stage/share/
+    - bash '{{.ROOT_DIR}}/src/bundle-libs.sh' '{{.SYSROOT}}/usr/local/lib' stage
+    - task: licenses
+    # TODO: which tar command
+    - >-
+      tar -C stage --sort=name --owner=0 --group=0 --numeric-owner
+      --mode='u+rwX,go+rX,go-w'
+      --mtime='@0'
+      -cf - bin lib libexec share
+      | gzip -9n > '{{.DIST_DIR}}/{{.BINNAME}}'
+
+  licenses:
+    internal: true
+    dir: '{{.WORK_DIR}}/stage/share/doc'
+    cmds:
+    - for: [COPYING, COPYING.LIB, LICENSE]
+      task: license
+      vars: {NAME: qemu, SRC: 'qemu-{{.VERSION}}', FILE: '{{.ITEM}}'}
+    - task: license
+      vars: {NAME: zlib, SRC: 'zlib-{{.ZLIB_VERSION}}', FILE: LICENSE}
+    - task: license
+      vars: {NAME: libffi, SRC: 'libffi-{{.LIBFFI_VERSION}}', FILE: LICENSE}
+    - task: license
+      vars: {NAME: pcre2, SRC: 'pcre2-{{.PCRE2_VERSION}}', FILE: LICENCE.md}
+    - task: license
+      vars: {NAME: glib, SRC: 'glib-{{.GLIB_VERSION}}', FILE: COPYING}
+    - task: license
+      vars: {NAME: pixman, SRC: 'pixman-{{.PIXMAN_VERSION}}', FILE: COPYING}
+    - task: license
+      vars: {NAME: libslirp, SRC: 'libslirp-{{.LIBSLIRP_VERSION}}', FILE: COPYRIGHT}
+    - for: [README.license, BSD-2-Clause]
+      task: license
+      vars: {NAME: dtc, SRC: 'dtc-{{.DTC_VERSION}}', FILE: '{{.ITEM}}'}
+
+  license:
+    internal: true
+    dir: '{{.WORK_DIR}}/stage/share/doc'
+    cmds:
+    - cmd: coreutils mkdir -p '{{.NAME}}'
+      silent: true
+    - coreutils cp '{{.SRC_DIR}}/{{.SRC}}/{{.FILE}}' '{{.NAME}}/{{.FILE}}'
+
+  ##############################################################################
+  # Checksum and signature
+  ##############################################################################
+
+  sha256sum:
+    desc: '{{.TASK}}'
+    dir: '{{.DIST_DIR}}'
+    deps:
+    - task: tool:aqua:tag:coreutils
+    - task: prepare
+    sources:
+    - '{{.BINNAME}}'
+    generates:
+    - '{{.BINNAME}}.sha256sum'
+    cmds:
+    - coreutils sha256sum -b "{{.BINNAME}}" | coreutils tee "{{.BINNAME}}.sha256sum"
+
+  sha256sum:verify:
+    desc: '{{.TASK}}'
+    dir: '{{.DIST_DIR}}'
+    deps:
+    - task: tool:aqua:tag:coreutils
+    - task: sha256sum
+    sources:
+    - '{{.BINNAME}}'
+    generates:
+    - '{{.ROOT_DIR}}/.build/{{.VERSION}}/.done_sha256sum_verify_{{.BUILD_TARGET}}'
+    cmds:
+    - coreutils sha256sum -c "{{.BINNAME}}.sha256sum"
+    - cmd: touch '{{.ROOT_DIR}}/.build/{{.VERSION}}/.done_sha256sum_verify_{{.BUILD_TARGET}}'
+      silent: true
+
+  cosign:
+    desc: '{{.TASK}}'
+    dir: '{{.DIST_DIR}}'
+    deps:
+    - task: prepare
+    sources:
+    - '{{.BINNAME}}'
+    generates:
+    - '{{.BINNAME}}.sigstore.json'
+    cmds:
+    - >-
+      cosign sign-blob {{.BINNAME}}
+      -y
+      --bundle {{.BINNAME}}.sigstore.json
+
+  cosign:verify:
+    desc: '{{.TASK}}'
+    dir: '{{.DIST_DIR}}'
+    deps:
+    - task: cosign
+    requires:
+      vars:
+      - CERTIFICATE_IDENTITY
+      - CERTIFICATE_OIDC_ISSUER
+    sources:
+    - '{{.BINNAME}}'
+    - '{{.BINNAME}}.sigstore.json'
+    generates:
+    - '{{.ROOT_DIR}}/.build/{{.VERSION}}/.done_cosign_verify'
+    cmds:
+    - >-
+      cosign verify-blob '{{.BINNAME}}'
+      --bundle '{{.BINNAME}}.sigstore.json'
+      --certificate-identity '{{.CERTIFICATE_IDENTITY}}'
+      --certificate-oidc-issuer '{{.CERTIFICATE_OIDC_ISSUER}}'
+    - cmd: touch '{{.ROOT_DIR}}/.build/{{.VERSION}}/.done_cosign_verify'
+      silent: true

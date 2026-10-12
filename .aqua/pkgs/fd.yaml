@@ -1,0 +1,6 @@
+packages:
+- name: sharkdp/fd@v10.5.0
+  tags:
+  - fd
+  - shellcheck
+  - shfmt

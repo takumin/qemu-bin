@@ -1,0 +1,12 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+#
+# pkg-config wrapper that only finds the libraries built into TARGET_SYSROOT,
+# never the ones of the build host.
+
+unset PKG_CONFIG_PATH
+PKG_CONFIG_LIBDIR="${TARGET_SYSROOT:?TARGET_SYSROOT is not set}/usr/local/lib/pkgconfig"
+PKG_CONFIG_SYSROOT_DIR="${TARGET_SYSROOT}"
+export PKG_CONFIG_LIBDIR PKG_CONFIG_SYSROOT_DIR
+
+exec pkg-config "$@"

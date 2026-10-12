@@ -1,0 +1,4 @@
+packages:
+- name: editorconfig-checker/editorconfig-checker@v4.0.2
+  tags:
+  - ec

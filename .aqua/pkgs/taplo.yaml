@@ -1,0 +1,4 @@
+packages:
+- name: tamasfe/taplo@0.10.0
+  tags:
+  - taplo
