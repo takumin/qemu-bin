@@ -30,6 +30,8 @@ vars:
   LIBSLIRP_VERSION: '4.9.5'
   # renovate: datasource=git-tags depName=dtc packageName=https://git.kernel.org/pub/scm/utils/dtc/dtc.git extractVersion=^v(?<version>.+)$
   DTC_VERSION: '1.8.1'
+  # Python for QEMU's configure, distribution builds may lack ensurepip
+  PYTHON_VERSION: '3.13'
   # renovate: datasource=pypi depName=meson
   MESON_VERSION: '1.12.1'
   DL_DIR: '{{.ROOT_DIR}}/.build/dl'
@@ -501,6 +503,7 @@ tasks:
       silent: true
     - cmd: coreutils mkdir -p 'build/{{.NAME}}'
       silent: true
+    - uv python install '{{.PYTHON_VERSION}}'
     # --cross-prefix only makes configure write a meson cross file, the tools
     # are given explicitly. libfdt is found with find_library(), not pkg-config.
     - >-
@@ -508,6 +511,7 @@ tasks:
       {{.TOOLS}} PKG_CONFIG='{{.TOOLCHAIN}}/zig-pkg-config'
       '{{.SRC_DIR}}/{{.NAME}}/configure'
       --cross-prefix='{{.BUILD_TARGET}}-'
+      --python="$(uv python find --managed-python '{{.PYTHON_VERSION}}')"
       --prefix=/usr/local
       --target-list='{{.QEMU_TARGET_LIST}}'
       --extra-cflags='-I{{.SYSROOT}}/usr/local/include'

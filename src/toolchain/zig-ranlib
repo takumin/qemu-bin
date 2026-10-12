@@ -1,3 +1,8 @@
 #!/bin/sh
 # SPDX-License-Identifier: MIT
+
+# See zig-cc
+AQUA_GLOBAL_CONFIG="$(cd "$(dirname "$0")/../.." && pwd)/.aqua/aqua.yml${AQUA_GLOBAL_CONFIG:+:${AQUA_GLOBAL_CONFIG}}"
+export AQUA_GLOBAL_CONFIG
+
 exec zig ranlib "$@"

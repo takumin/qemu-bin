@@ -8,6 +8,11 @@
 # - The bundled shared libraries are installed in lib/ next to bin/ and
 #   libexec/, so every binary and library looks them up from $ORIGIN/../lib.
 
+# Build tools run the compiler outside the repository (e.g. meson in /tmp),
+# where aqua cannot find .aqua/aqua.yml from the working directory.
+AQUA_GLOBAL_CONFIG="$(cd "$(dirname "$0")/../.." && pwd)/.aqua/aqua.yml${AQUA_GLOBAL_CONFIG:+:${AQUA_GLOBAL_CONFIG}}"
+export AQUA_GLOBAL_CONFIG
+
 link=1
 for arg in "$@"; do
 	case "${arg}" in
