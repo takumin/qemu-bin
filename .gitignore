@@ -4,3 +4,6 @@
 
 # build
 .build/
+
+# uv
+.venv/

@@ -44,8 +44,9 @@ To use it setuid, the bundled libraries must be visible to the loader by other m
 Releases are tagged with the release date in JST in SemVer form, such as `v2026.10.13`.
 The versions of QEMU and the bundled libraries are listed in the release notes.
 
-Renovate updates `version.json` when QEMU tags a new release, and the bundled library versions in `tasks/build.task.yml`.
-When a change of the build inputs (`version.json`, `tasks/build.task.yml`, `src/` and the zig, ninja and uv versions) is merged, CI on the main branch builds the binaries and creates a release.
+Renovate updates `version.json` when QEMU tags a new release, the bundled library versions in `tasks/build.task.yml`, and meson in `pyproject.toml` together with them.
+The Python version in `.python-version` is updated by hand, since a new Python release does not change the binaries.
+When a change of the build inputs (`version.json`, `tasks/build.task.yml`, `src/`, the zig, ninja and uv versions, and the Python and meson versions in `.python-version` and `uv.lock`) is merged, CI on the main branch builds the binaries and creates a release.
 The release notes record a hash of the build inputs, and CI compares it with the latest release to decide whether to release.
 Only one release can be made per day, so changes merged after the release of the day are released by the scheduled CI run on the next day.
 
