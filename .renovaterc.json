@@ -38,8 +38,14 @@
 			"allowedVersions": "<4"
 		},
 		{
+			"description": "Python only runs QEMU's configure, a new minor version is a manual change",
+			"matchManagers": ["pyenv"],
+			"matchUpdateTypes": ["major", "minor"],
+			"enabled": false
+		},
+		{
 			"description": "Build dependencies of the release binaries",
-			"matchFileNames": ["tasks/build.task.yml"],
+			"matchFileNames": ["tasks/build.task.yml", "pyproject.toml"],
 			"groupName": "bundled libraries"
 		}
 	]

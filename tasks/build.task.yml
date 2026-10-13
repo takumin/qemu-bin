@@ -38,17 +38,15 @@ vars:
   LIBSECCOMP_VERSION: '2.6.1'
   # renovate: datasource=gitlab-tags depName=nettle/nettle registryUrl=https://git.lysator.liu.se extractVersion=^nettle_(?<version>[\d.]+)_release_\d+$
   NETTLE_VERSION: '3.10.2'
-  # Python for QEMU's configure, distribution builds may lack ensurepip
-  PYTHON_VERSION: '3.13'
-  # renovate: datasource=pypi depName=meson
-  MESON_VERSION: '1.12.1'
   DL_DIR: '{{.ROOT_DIR}}/.build/dl'
   SRC_DIR: '{{.ROOT_DIR}}/.build/src'
   WORK_DIR: '{{.ROOT_DIR}}/.build/{{.VERSION}}/{{.BUILD_TARGET}}'
   SYSROOT: '{{.WORK_DIR}}/sysroot'
   DIST_DIR: '{{.ROOT_DIR}}/.build/{{.VERSION}}/dist'
   BINNAME: 'qemu-{{.BUILD_TARGET}}.tar.gz'
-  MESON: uv tool run --from 'meson=={{.MESON_VERSION}}' meson
+  # Python and meson are pinned in .python-version, pyproject.toml and uv.lock
+  UV_PROJECT: --project '{{.ROOT_DIR}}'
+  MESON: uv run {{.UV_PROJECT}} --frozen meson
   TOOLCHAIN: '{{.ROOT_DIR}}/src/toolchain'
   # Task does not override variables already set in the environment (PATH,
   # PKG_CONFIG_PATH), so the wrappers are called by absolute path instead.
@@ -114,6 +112,9 @@ tasks:
       .aqua/pkgs/zig.yaml
       .aqua/pkgs/ninja.yaml
       .aqua/pkgs/uv.yaml
+      .python-version
+      pyproject.toml
+      uv.lock
       src/bundle-libs.sh
       src/toolchain/*
       | coreutils sha256sum
@@ -656,7 +657,9 @@ tasks:
       silent: true
     - cmd: coreutils mkdir -p 'build/{{.NAME}}'
       silent: true
-    - uv python install '{{.PYTHON_VERSION}}'
+    # Python for QEMU's configure, distribution builds may lack ensurepip
+    - uv python install {{.UV_PROJECT}}
+    # --system skips the .venv of uv run, QEMU makes its own venv from the base
     # --cross-prefix only makes configure write a meson cross file, the tools
     # are given explicitly. libfdt is found with find_library(), not pkg-config.
     - >-
@@ -664,7 +667,7 @@ tasks:
       {{.TOOLS}} PKG_CONFIG='{{.TOOLCHAIN}}/zig-pkg-config'
       '{{.SRC_DIR}}/{{.NAME}}/configure'
       --cross-prefix='{{.BUILD_TARGET}}-'
-      --python="$(uv python find --managed-python '{{.PYTHON_VERSION}}')"
+      --python="$(uv python find {{.UV_PROJECT}} --managed-python --system)"
       --prefix=/usr/local
       --target-list='{{.QEMU_TARGET_LIST}}'
       --extra-cflags='-I{{.SYSROOT}}/usr/local/include'
