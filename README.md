@@ -26,13 +26,14 @@ share/doc/*/*     (licenses of QEMU and the bundled libraries)
 
 Only glibc is used from the system.
 The other libraries are built from source as shared libraries and bundled in `lib/`:
-glib, pixman, libslirp, libfdt (dtc), zlib, libffi, pcre2, libaio and liburing.
+glib, pixman, libslirp, libfdt (dtc), zlib, libffi, pcre2, libaio, liburing, libseccomp and nettle.
 Every binary and library has `RUNPATH=$ORIGIN/../lib`, and QEMU is built relocatable, so the tree works wherever it is extracted.
 
 The minimum glibc is 2.27, the first release with `memfd_create()`, which libvhost-user in QEMU calls without a fallback.
 
-The build enables TCG, KVM, user mode networking (slirp), passt, VNC, the VirtFS (9p) backend, Linux AIO and io_uring.
-GUI frontends (GTK, SDL), audio other than OSS, TLS and seccomp are not built.
+The build enables TCG, KVM, user mode networking (slirp), passt, VNC, the VirtFS (9p) backend, Linux AIO, io_uring and the seccomp sandbox (`-sandbox on`).
+nettle is the crypto backend, so LUKS images (`qemu-img create -f luks`, qcow2 `encrypt.format=luks`) and VNC password authentication work.
+GUI frontends (GTK, SDL), audio other than OSS, TLS and public key algorithms (virtio-crypto akcipher) are not built.
 
 `aio=io_uring` needs Linux 5.1 or later, and fails where io_uring is blocked, such as under the default seccomp profile of Docker or with the `kernel.io_uring_disabled` sysctl.
 

@@ -34,6 +34,10 @@ vars:
   LIBAIO_VERSION: '0.3.113'
   # renovate: datasource=github-tags depName=axboe/liburing extractVersion=^liburing-(?<version>.+)$
   LIBURING_VERSION: '2.15'
+  # renovate: datasource=github-releases depName=seccomp/libseccomp extractVersion=^v(?<version>.+)$
+  LIBSECCOMP_VERSION: '2.6.1'
+  # renovate: datasource=gitlab-tags depName=nettle/nettle registryUrl=https://git.lysator.liu.se extractVersion=^nettle_(?<version>[\d.]+)_release_\d+$
+  NETTLE_VERSION: '3.10.2'
   # Python for QEMU's configure, distribution builds may lack ensurepip
   PYTHON_VERSION: '3.13'
   # renovate: datasource=pypi depName=meson
@@ -131,6 +135,8 @@ tasks:
       --arg dtc '{{.DTC_VERSION}}'
       --arg libaio '{{.LIBAIO_VERSION}}'
       --arg liburing '{{.LIBURING_VERSION}}'
+      --arg libseccomp '{{.LIBSECCOMP_VERSION}}'
+      --arg nettle '{{.NETTLE_VERSION}}'
       --arg zlib '{{.ZLIB_VERSION}}'
       --arg libffi '{{.LIBFFI_VERSION}}'
       --arg pcre2 '{{.PCRE2_VERSION}}'
@@ -246,6 +252,16 @@ tasks:
         NAME: 'liburing-{{.LIBURING_VERSION}}'
         FILE: 'liburing-{{.LIBURING_VERSION}}.tar.gz'
         URL: 'https://github.com/axboe/liburing/archive/refs/tags/liburing-{{.LIBURING_VERSION}}.tar.gz'
+    - task: extract
+      vars:
+        NAME: 'libseccomp-{{.LIBSECCOMP_VERSION}}'
+        FILE: 'libseccomp-{{.LIBSECCOMP_VERSION}}.tar.gz'
+        URL: 'https://github.com/seccomp/libseccomp/releases/download/v{{.LIBSECCOMP_VERSION}}/libseccomp-{{.LIBSECCOMP_VERSION}}.tar.gz'
+    - task: extract
+      vars:
+        NAME: 'nettle-{{.NETTLE_VERSION}}'
+        FILE: 'nettle-{{.NETTLE_VERSION}}.tar.gz'
+        URL: 'https://ftp.gnu.org/gnu/nettle/nettle-{{.NETTLE_VERSION}}.tar.gz'
     - task: extract
       vars:
         NAME: 'qemu-{{.VERSION}}'
@@ -568,6 +584,49 @@ tasks:
       make -C 'build/{{.NAME}}' DESTDIR='{{.SYSROOT}}' install
     - coreutils rm -f '{{.SYSROOT}}'/usr/local/lib/liburing*.a
 
+  libseccomp:
+    desc: '{{.TASK}}'
+    run: once
+    deps:
+    - toolchain
+    - sources
+    sources:
+    - '{{.DL_DIR}}/libseccomp-{{.LIBSECCOMP_VERSION}}.tar.gz'
+    - '{{.ROOT_DIR}}/src/toolchain/*'
+    generates:
+    - '{{.SYSROOT}}/usr/local/lib/libseccomp.so'
+    cmds:
+    # configure insists on gperf, but the release tarball ships the syscall
+    # table it generates. GPERF=false fails the build if it is regenerated.
+    - task: autotools
+      vars:
+        NAME: 'libseccomp-{{.LIBSECCOMP_VERSION}}'
+        ARGS: >-
+          --disable-python
+          GPERF=false
+
+  # Crypto backend for LUKS and VNC password authentication. Public key
+  # algorithms (hogweed) need GMP and only serve virtio-crypto akcipher.
+  nettle:
+    desc: '{{.TASK}}'
+    run: once
+    deps:
+    - toolchain
+    - sources
+    sources:
+    - '{{.DL_DIR}}/nettle-{{.NETTLE_VERSION}}.tar.gz'
+    - '{{.ROOT_DIR}}/src/toolchain/*'
+    generates:
+    - '{{.SYSROOT}}/usr/local/lib/libnettle.so'
+    cmds:
+    - task: autotools
+      vars:
+        NAME: 'nettle-{{.NETTLE_VERSION}}'
+        ARGS: >-
+          --disable-public-key
+          --disable-documentation
+          --disable-openssl
+
   ##############################################################################
   # QEMU
   ##############################################################################
@@ -583,6 +642,8 @@ tasks:
     - dtc
     - libaio
     - liburing
+    - libseccomp
+    - nettle
     vars:
       NAME: 'qemu-{{.VERSION}}'
     sources:
@@ -618,7 +679,9 @@ tasks:
       --enable-kvm
       --enable-linux-aio
       --enable-linux-io-uring
+      --enable-nettle
       --enable-pixman
+      --enable-seccomp
       --enable-slirp
       --enable-tcg
       --enable-vnc
@@ -679,6 +742,11 @@ tasks:
     - for: [LICENSE, COPYING, COPYING.GPL]
       task: license
       vars: {NAME: liburing, SRC: 'liburing-{{.LIBURING_VERSION}}', FILE: '{{.ITEM}}'}
+    - task: license
+      vars: {NAME: libseccomp, SRC: 'libseccomp-{{.LIBSECCOMP_VERSION}}', FILE: LICENSE}
+    - for: [COPYINGv2, COPYINGv3, COPYING.LESSERv3]
+      task: license
+      vars: {NAME: nettle, SRC: 'nettle-{{.NETTLE_VERSION}}', FILE: '{{.ITEM}}'}
 
   license:
     internal: true
