@@ -33,6 +33,11 @@
 			"allowedVersions": "/^\\d+\\.\\d*[02468]\\.\\d+$/"
 		},
 		{
+			"description": "QEMU calls nettle digest functions through casts with the length argument removed in nettle 4",
+			"matchDepNames": ["nettle/nettle"],
+			"allowedVersions": "<4"
+		},
+		{
 			"description": "Build dependencies of the release binaries",
 			"matchFileNames": ["tasks/build.task.yml"],
 			"groupName": "bundled libraries"
