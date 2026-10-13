@@ -30,6 +30,10 @@ vars:
   LIBSLIRP_VERSION: '4.9.5'
   # renovate: datasource=git-tags depName=dtc packageName=https://git.kernel.org/pub/scm/utils/dtc/dtc.git extractVersion=^v(?<version>.+)$
   DTC_VERSION: '1.8.1'
+  # renovate: datasource=forgejo-tags depName=jmoyer/libaio registryUrl=https://codeberg.org extractVersion=^libaio-(?<version>.+)$
+  LIBAIO_VERSION: '0.3.113'
+  # renovate: datasource=github-tags depName=axboe/liburing extractVersion=^liburing-(?<version>.+)$
+  LIBURING_VERSION: '2.15'
   # Python for QEMU's configure, distribution builds may lack ensurepip
   PYTHON_VERSION: '3.13'
   # renovate: datasource=pypi depName=meson
@@ -125,6 +129,8 @@ tasks:
       --arg pixman '{{.PIXMAN_VERSION}}'
       --arg libslirp '{{.LIBSLIRP_VERSION}}'
       --arg dtc '{{.DTC_VERSION}}'
+      --arg libaio '{{.LIBAIO_VERSION}}'
+      --arg liburing '{{.LIBURING_VERSION}}'
       --arg zlib '{{.ZLIB_VERSION}}'
       --arg libffi '{{.LIBFFI_VERSION}}'
       --arg pcre2 '{{.PCRE2_VERSION}}'
@@ -230,6 +236,16 @@ tasks:
         NAME: 'dtc-{{.DTC_VERSION}}'
         FILE: 'dtc-{{.DTC_VERSION}}.tar.xz'
         URL: 'https://www.kernel.org/pub/software/utils/dtc/dtc-{{.DTC_VERSION}}.tar.xz'
+    - task: extract
+      vars:
+        NAME: 'libaio-{{.LIBAIO_VERSION}}'
+        FILE: 'libaio-{{.LIBAIO_VERSION}}.tar.gz'
+        URL: 'https://codeberg.org/jmoyer/libaio/archive/libaio-{{.LIBAIO_VERSION}}.tar.gz'
+    - task: extract
+      vars:
+        NAME: 'liburing-{{.LIBURING_VERSION}}'
+        FILE: 'liburing-{{.LIBURING_VERSION}}.tar.gz'
+        URL: 'https://github.com/axboe/liburing/archive/refs/tags/liburing-{{.LIBURING_VERSION}}.tar.gz'
     - task: extract
       vars:
         NAME: 'qemu-{{.VERSION}}'
@@ -478,6 +494,80 @@ tasks:
           -Dpython=disabled
           -Dtests=false
 
+  libaio:
+    desc: '{{.TASK}}'
+    run: once
+    dir: '{{.WORK_DIR}}'
+    deps:
+    - toolchain
+    - sources
+    vars:
+      NAME: 'libaio-{{.LIBAIO_VERSION}}'
+    sources:
+    - '{{.DL_DIR}}/{{.NAME}}.tar.gz'
+    - '{{.ROOT_DIR}}/src/toolchain/*'
+    generates:
+    - '{{.SYSROOT}}/usr/local/lib/libaio.so'
+    cmds:
+    # libaio has no configure and builds in the source tree
+    - cmd: coreutils rm -rf 'build/{{.NAME}}'
+      silent: true
+    - cmd: coreutils mkdir -p build
+      silent: true
+    - coreutils cp -a '{{.SRC_DIR}}/{{.NAME}}' 'build/{{.NAME}}'
+    # zig cc does not take *.os as objects, so name the PIC objects *.pic.o
+    - sed -i 's/\.os\b/.pic.o/g' 'build/{{.NAME}}/src/Makefile'
+    # CFLAGS from the environment, the Makefile appends -I. and -fPIC to it
+    - >-
+      {{.TOOLS}} CFLAGS=-O2
+      make -C 'build/{{.NAME}}' -j"$(nproc)"
+    - >-
+      {{.TOOLS}} CFLAGS=-O2
+      make -C 'build/{{.NAME}}' prefix=/usr/local DESTDIR='{{.SYSROOT}}' install
+    - coreutils rm -f '{{.SYSROOT}}/usr/local/lib/libaio.a'
+
+  liburing:
+    desc: '{{.TASK}}'
+    run: once
+    dir: '{{.WORK_DIR}}'
+    deps:
+    - toolchain
+    - sources
+    vars:
+      NAME: 'liburing-{{.LIBURING_VERSION}}'
+    sources:
+    - '{{.DL_DIR}}/{{.NAME}}.tar.gz'
+    - '{{.ROOT_DIR}}/src/toolchain/*'
+    generates:
+    - '{{.SYSROOT}}/usr/local/lib/liburing.so'
+    cmds:
+    # liburing's configure is not autoconf and builds in the source tree
+    - cmd: coreutils rm -rf 'build/{{.NAME}}'
+      silent: true
+    - cmd: coreutils mkdir -p build
+      silent: true
+    - coreutils cp -a '{{.SRC_DIR}}/{{.NAME}}' 'build/{{.NAME}}'
+    # zig cc does not take *.os as objects, so name the PIC objects *.pic.o
+    - sed -i 's/\.os\b/.pic.o/g' 'build/{{.NAME}}/src/Makefile'
+    # The nolibc build passes -nostdlib to the compiler as well, and zig cc
+    # then drops the libc headers that liburing still includes.
+    - >-
+      cd 'build/{{.NAME}}' &&
+      {{.TOOLS}}
+      ./configure
+      --prefix=/usr/local
+      --libdir=/usr/local/lib
+      --libdevdir=/usr/local/lib
+      --mandir=/usr/local/share/man
+      --use-libc
+    - >-
+      {{.TOOLS}}
+      make -C 'build/{{.NAME}}' -j"$(nproc)" library
+    - >-
+      {{.TOOLS}}
+      make -C 'build/{{.NAME}}' DESTDIR='{{.SYSROOT}}' install
+    - coreutils rm -f '{{.SYSROOT}}'/usr/local/lib/liburing*.a
+
   ##############################################################################
   # QEMU
   ##############################################################################
@@ -491,6 +581,8 @@ tasks:
     - pixman
     - libslirp
     - dtc
+    - libaio
+    - liburing
     vars:
       NAME: 'qemu-{{.VERSION}}'
     sources:
@@ -524,6 +616,8 @@ tasks:
       --disable-guest-agent
       --enable-fdt=system
       --enable-kvm
+      --enable-linux-aio
+      --enable-linux-io-uring
       --enable-pixman
       --enable-slirp
       --enable-tcg
@@ -580,6 +674,11 @@ tasks:
     - for: [README.license, BSD-2-Clause]
       task: license
       vars: {NAME: dtc, SRC: 'dtc-{{.DTC_VERSION}}', FILE: '{{.ITEM}}'}
+    - task: license
+      vars: {NAME: libaio, SRC: 'libaio-{{.LIBAIO_VERSION}}', FILE: COPYING}
+    - for: [LICENSE, COPYING, COPYING.GPL]
+      task: license
+      vars: {NAME: liburing, SRC: 'liburing-{{.LIBURING_VERSION}}', FILE: '{{.ITEM}}'}
 
   license:
     internal: true

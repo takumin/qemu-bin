@@ -26,13 +26,15 @@ share/doc/*/*     (licenses of QEMU and the bundled libraries)
 
 Only glibc is used from the system.
 The other libraries are built from source as shared libraries and bundled in `lib/`:
-glib, pixman, libslirp, libfdt (dtc), zlib, libffi and pcre2.
+glib, pixman, libslirp, libfdt (dtc), zlib, libffi, pcre2, libaio and liburing.
 Every binary and library has `RUNPATH=$ORIGIN/../lib`, and QEMU is built relocatable, so the tree works wherever it is extracted.
 
 The minimum glibc is 2.27, the first release with `memfd_create()`, which libvhost-user in QEMU calls without a fallback.
 
-The build enables TCG, KVM, user mode networking (slirp), passt, VNC and the VirtFS (9p) backend.
-GUI frontends (GTK, SDL), audio other than OSS, TLS, io_uring, Linux AIO and seccomp are not built.
+The build enables TCG, KVM, user mode networking (slirp), passt, VNC, the VirtFS (9p) backend, Linux AIO and io_uring.
+GUI frontends (GTK, SDL), audio other than OSS, TLS and seccomp are not built.
+
+`aio=io_uring` needs Linux 5.1 or later, and fails where io_uring is blocked, such as under the default seccomp profile of Docker or with the `kernel.io_uring_disabled` sysctl.
 
 `qemu-bridge-helper` is usually installed setuid, and the dynamic loader ignores `$ORIGIN` for setuid programs.
 To use it setuid, the bundled libraries must be visible to the loader by other means, such as `ld.so.conf`.
