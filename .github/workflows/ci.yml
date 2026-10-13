@@ -59,12 +59,23 @@ jobs:
     with:
       build-version: ${{ needs.setup.outputs.build-version }}
   ##############################################################################
+  # Test
+  ##############################################################################
+  test:
+    needs:
+    - build
+    name: Test
+    permissions:
+      contents: read
+    uses: $/.github/workflows/wc-test.yml
+  ##############################################################################
   # Sign
   ##############################################################################
   sign:
     needs:
     - setup
     - build
+    - test
     name: Sign
     permissions:
       id-token: write
@@ -97,6 +108,7 @@ jobs:
     - lint
     - setup
     - build
+    - test
     - sign
     - release
     name: CI

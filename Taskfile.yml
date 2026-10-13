@@ -12,6 +12,7 @@ includes:
   lint: ./tasks/lint.task.yml
   version: ./tasks/version.task.yml
   build: ./tasks/build.task.yml
+  test: ./tasks/test.task.yml
 
 tasks:
   default:
@@ -24,3 +25,4 @@ tasks:
     - task: lint
     - task: version
     - task: build
+    - task: test

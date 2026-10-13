@@ -40,6 +40,24 @@ GUI frontends (GTK, SDL), audio other than OSS, TLS and public key algorithms (v
 `qemu-bridge-helper` is usually installed setuid, and the dynamic loader ignores `$ORIGIN` for setuid programs.
 To use it setuid, the bundled libraries must be visible to the loader by other means, such as `ld.so.conf`.
 
+# About tests
+CI tests the `x86_64-linux-gnu` tarball before signing and releasing it, on the x86_64 runner where KVM is available.
+The tests run on the runner and again in an Ubuntu 18.04 container to check the minimum glibc:
+
+- Every binary and library loads, and resolves the libraries other than glibc to the bundled ones.
+- `qemu-img` and `qemu-io` read and write qcow2 images with the threads, Linux AIO and io_uring backends, and LUKS images.
+- An empty machine is started over QMP with KVM and TCG.
+- A guest boots on x86_64 with KVM and TCG and on aarch64 with TCG, under `-sandbox on`.
+  Its `/init` (`src/test/init.c`) checks the accelerator, reads and writes a virtio-blk disk and connects to the host through user mode networking.
+
+The guest kernels and modules are taken from the netboot files of Alpine Linux, pinned by hash in `tasks/test.task.yml`.
+The `aarch64-linux-gnu` tarball is built from the same recipe and is not tested.
+
+```console
+$ task build:prepare
+$ task test
+```
+
 # About release workflow
 Releases are tagged with the release date in JST in SemVer form, such as `v2026.10.13`.
 The versions of QEMU and the bundled libraries are listed in the release notes.

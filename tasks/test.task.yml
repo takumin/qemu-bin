@@ -1,0 +1,172 @@
+# https://taskfile.dev
+# yaml-language-server: $schema=https://taskfile.dev/schema.json
+
+version: '3'
+
+set: [pipefail]
+shopt: [globstar]
+
+vars:
+  LATEST_VERSION:
+    sh: coreutils test -f version.json && jq -r '.version' version.json || echo 'unknown'
+  VERSION: '{{env "BUILD_VERSION" | default .LATEST_VERSION}}'
+  # The tests run the x86_64 binaries, the aarch64 guest runs on TCG
+  TARBALL: '{{env "QEMU_BIN_TEST_TARBALL" | default (printf "%s/.build/%s/dist/qemu-x86_64-linux-gnu.tar.gz" .ROOT_DIR .VERSION)}}'
+  # Guest kernels and modules from the netboot files of Alpine.
+  # The files are pinned by hash, update them by hand.
+  ALPINE_BRANCH: v3.24
+  ALPINE_VERSION: '3.24.2'
+  ALPINE_URL: 'https://dl-cdn.alpinelinux.org/alpine/{{.ALPINE_BRANCH}}/releases/{ARCH}/netboot-{{.ALPINE_VERSION}}'
+  ALPINE_SHA256:
+    map:
+      vmlinuz-virt-x86_64: 40f620bc8c93d952e57dd8dfc0f94fca1759d192a4fc4a260705d50ca378559c
+      initramfs-virt-x86_64: c990c63e4602aa84b92d7df54fd180cb0e56590d61b71221ba6d60e913d26357
+      vmlinuz-virt-aarch64: e45e1f6083d1ed45db6647b422e32b6ae6dc54de7b8190b7b97744fb293412e3
+      initramfs-virt-aarch64: ffe65ec5a0c0bf470042ad28f7ce7aa5f842ce8090e4230fb2703a7a34e1bebe
+  GUEST_ARCHS: [x86_64, aarch64]
+  GUEST_MODULES: failover net_failover virtio_net virtio_blk
+  # The minimum glibc of the release binaries
+  CONTAINER_IMAGE: 'ubuntu:18.04@sha256:152dc042452c496007f07ca9127571cb9c29697f42acbfad72324b2bb2e43c98'
+  DL_DIR: '{{.ROOT_DIR}}/.build/dl/test'
+  TEST_DIR: '{{.ROOT_DIR}}/.build/test'
+  ASSETS_DIR: '{{.TEST_DIR}}/assets'
+  PREFIX_DIR: '{{.TEST_DIR}}/qemu'
+  UV_PROJECT: --project '{{.ROOT_DIR}}'
+
+includes:
+  tool:
+    taskfile: tool.task.yml
+    internal: true
+
+tasks:
+  default:
+    desc: '{{.TASK}}'
+    silent: true
+    cmds:
+    - task: host
+    - task: container
+
+  host:
+    desc: Test the release tarball on the host
+    dir: '{{.ROOT_DIR}}'
+    deps:
+    - assets
+    - extract
+    cmds:
+    - bash src/test/run.sh '{{.PREFIX_DIR}}' '{{.ASSETS_DIR}}' '{{.TEST_DIR}}/work-host'
+
+  container:
+    desc: Test the release tarball with the minimum glibc
+    dir: '{{.ROOT_DIR}}'
+    deps:
+    - assets
+    - extract
+    cmds:
+    # The default seccomp profile of Docker blocks io_uring
+    - >-
+      docker run --rm
+      --user "$(id -u):$(id -g)"
+      $(coreutils test -e /dev/kvm && echo "--device /dev/kvm --group-add $(coreutils stat -c %g /dev/kvm)")
+      --security-opt seccomp=unconfined
+      -e QEMU_BIN_TEST_REQUIRE_KVM
+      -v '{{.ROOT_DIR}}/src/test:/src:ro'
+      -v '{{.TEST_DIR}}:/test'
+      '{{.CONTAINER_IMAGE}}'
+      bash /src/run.sh /test/qemu /test/assets /test/work-container
+
+  extract:
+    desc: '{{.TASK}}'
+    deps:
+    - task: tool:aqua:tag:coreutils
+    sources:
+    - '{{.TARBALL}}'
+    generates:
+    - '{{.PREFIX_DIR}}/bin/qemu-system-x86_64'
+    cmds:
+    - cmd: coreutils rm -rf '{{.PREFIX_DIR}}'
+      silent: true
+    - cmd: coreutils mkdir -p '{{.PREFIX_DIR}}'
+      silent: true
+    # TODO: which tar command
+    - tar -xzf '{{.TARBALL}}' -C '{{.PREFIX_DIR}}'
+
+  assets:
+    desc: '{{.TASK}}'
+    run: once
+    deps:
+    - for:
+        var: GUEST_ARCHS
+      task: kernel
+      vars:
+        ARCH: '{{.ITEM}}'
+    - for:
+        var: GUEST_ARCHS
+      task: initramfs
+      vars:
+        ARCH: '{{.ITEM}}'
+
+  fetch:
+    internal: true
+    label: 'fetch:{{.FILE}}'
+    run: when_changed
+    deps:
+    - task: tool:aqua:tag:coreutils
+    status:
+    - coreutils test -f '{{.DL_DIR}}/{{.FILE}}'
+    cmds:
+    - cmd: coreutils mkdir -p '{{.DL_DIR}}'
+      silent: true
+    # TODO: which curl command
+    - curl -fsSLo '{{.DL_DIR}}/{{.FILE}}.tmp' '{{.URL}}'
+    - >-
+      echo '{{index .ALPINE_SHA256 .FILE}}  {{.DL_DIR}}/{{.FILE}}.tmp'
+      | coreutils sha256sum -c --quiet
+    - coreutils mv '{{.DL_DIR}}/{{.FILE}}.tmp' '{{.DL_DIR}}/{{.FILE}}'
+
+  kernel:
+    internal: true
+    label: 'kernel:{{.ARCH}}'
+    deps:
+    - task: fetch
+      vars:
+        FILE: 'vmlinuz-virt-{{.ARCH}}'
+        URL: '{{.ALPINE_URL | replace "{ARCH}" .ARCH}}/vmlinuz-virt'
+    sources:
+    - '{{.DL_DIR}}/vmlinuz-virt-{{.ARCH}}'
+    generates:
+    - '{{.ASSETS_DIR}}/vmlinuz-{{.ARCH}}'
+    cmds:
+    - cmd: coreutils mkdir -p '{{.ASSETS_DIR}}'
+      silent: true
+    - coreutils cp '{{.DL_DIR}}/vmlinuz-virt-{{.ARCH}}' '{{.ASSETS_DIR}}/vmlinuz-{{.ARCH}}'
+
+  initramfs:
+    internal: true
+    label: 'initramfs:{{.ARCH}}'
+    dir: '{{.ROOT_DIR}}'
+    deps:
+    - task: tool:aqua:tag:zig
+    - task: tool:aqua:tag:uv
+    - task: fetch
+      vars:
+        FILE: 'initramfs-virt-{{.ARCH}}'
+        URL: '{{.ALPINE_URL | replace "{ARCH}" .ARCH}}/initramfs-virt'
+    sources:
+    - '{{.DL_DIR}}/initramfs-virt-{{.ARCH}}'
+    - src/test/init.c
+    - src/test/initramfs.py
+    generates:
+    - '{{.ASSETS_DIR}}/initramfs-{{.ARCH}}'
+    cmds:
+    - cmd: coreutils mkdir -p '{{.ASSETS_DIR}}'
+      silent: true
+    - >-
+      zig cc -target '{{.ARCH}}-linux-musl' -static -Os -s
+      -Wall -Wextra -Werror -Wno-gcc-install-dir-libstdcxx
+      -o '{{.ASSETS_DIR}}/init-{{.ARCH}}' src/test/init.c
+    - >-
+      uv run {{.UV_PROJECT}} --frozen python src/test/initramfs.py
+      '{{.DL_DIR}}/initramfs-virt-{{.ARCH}}'
+      '{{.ASSETS_DIR}}/init-{{.ARCH}}'
+      '{{.ASSETS_DIR}}/initramfs-{{.ARCH}}'
+      {{.GUEST_MODULES}}
