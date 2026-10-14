@@ -98,6 +98,17 @@ qemu_img convert -f qcow2 -O raw "${img}" "${workdir}/test.raw"
 qemu_img compare -f qcow2 -F raw "${img}" "${workdir}/test.raw"
 qemu_img info "${img}"
 
+section "qemu-img: qcow2 with zstd compression"
+zst="${workdir}/test-zstd.qcow2"
+qemu_img create -f qcow2 -o compression_type=zstd "${zst}" 16M
+qemu_io -f qcow2 -c 'write -c -P 0x66 0 1M' -c 'read -P 0x66 0 1M' "${zst}"
+qemu_img convert -c -f qcow2 -O qcow2 -o compression_type=zstd "${img}" "${workdir}/test-convert-zstd.qcow2"
+qemu_img compare -f qcow2 -F qcow2 "${img}" "${workdir}/test-convert-zstd.qcow2"
+for f in "${zst}" "${workdir}/test-convert-zstd.qcow2"; do
+	qemu_img check "${f}"
+	qemu_img info "${f}" | grep 'compression type: zstd' >/dev/null || die "${f} is not compressed with zstd"
+done
+
 section "qemu-io: AIO backends"
 for aio in threads native io_uring; do
 	qemu_io -f qcow2 --cache none --aio "${aio}" \

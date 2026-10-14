@@ -38,6 +38,8 @@ vars:
   LIBSECCOMP_VERSION: '2.6.1'
   # renovate: datasource=gitlab-tags depName=nettle/nettle registryUrl=https://git.lysator.liu.se extractVersion=^nettle_(?<version>[\d.]+)_release_\d+$
   NETTLE_VERSION: '3.10.2'
+  # renovate: datasource=github-releases depName=facebook/zstd extractVersion=^v(?<version>.+)$
+  ZSTD_VERSION: '1.5.7'
   DL_DIR: '{{.ROOT_DIR}}/.build/dl'
   SRC_DIR: '{{.ROOT_DIR}}/.build/src'
   WORK_DIR: '{{.ROOT_DIR}}/.build/{{.VERSION}}/{{.BUILD_TARGET}}'
@@ -138,6 +140,7 @@ tasks:
       --arg liburing '{{.LIBURING_VERSION}}'
       --arg libseccomp '{{.LIBSECCOMP_VERSION}}'
       --arg nettle '{{.NETTLE_VERSION}}'
+      --arg zstd '{{.ZSTD_VERSION}}'
       --arg zlib '{{.ZLIB_VERSION}}'
       --arg libffi '{{.LIBFFI_VERSION}}'
       --arg pcre2 '{{.PCRE2_VERSION}}'
@@ -263,6 +266,11 @@ tasks:
         NAME: 'nettle-{{.NETTLE_VERSION}}'
         FILE: 'nettle-{{.NETTLE_VERSION}}.tar.gz'
         URL: 'https://ftp.gnu.org/gnu/nettle/nettle-{{.NETTLE_VERSION}}.tar.gz'
+    - task: extract
+      vars:
+        NAME: 'zstd-{{.ZSTD_VERSION}}'
+        FILE: 'zstd-{{.ZSTD_VERSION}}.tar.gz'
+        URL: 'https://github.com/facebook/zstd/releases/download/v{{.ZSTD_VERSION}}/zstd-{{.ZSTD_VERSION}}.tar.gz'
     - task: extract
       vars:
         NAME: 'qemu-{{.VERSION}}'
@@ -628,6 +636,38 @@ tasks:
           --disable-documentation
           --disable-openssl
 
+  # qcow2 compression_type=zstd and multifd zstd compression for migration
+  zstd:
+    desc: '{{.TASK}}'
+    run: once
+    dir: '{{.WORK_DIR}}'
+    deps:
+    - toolchain
+    - sources
+    vars:
+      NAME: 'zstd-{{.ZSTD_VERSION}}'
+    sources:
+    - '{{.DL_DIR}}/{{.NAME}}.tar.gz'
+    - '{{.ROOT_DIR}}/src/toolchain/*'
+    generates:
+    - '{{.SYSROOT}}/usr/local/lib/libzstd.so'
+    cmds:
+    # zstd has no configure and builds in the source tree
+    - cmd: coreutils rm -rf 'build/{{.NAME}}'
+      silent: true
+    - cmd: coreutils mkdir -p build
+      silent: true
+    - coreutils cp -a '{{.SRC_DIR}}/{{.NAME}}' 'build/{{.NAME}}'
+    # Only the library, the zstd command line tool is not shipped
+    - >-
+      {{.TOOLS}} CFLAGS=-O2
+      make -C 'build/{{.NAME}}/lib' -j"$(nproc)" libzstd
+    - >-
+      {{.TOOLS}} CFLAGS=-O2
+      make -C 'build/{{.NAME}}/lib'
+      PREFIX=/usr/local LIBDIR=/usr/local/lib DESTDIR='{{.SYSROOT}}'
+      install-pc install-includes install-shared
+
   ##############################################################################
   # QEMU
   ##############################################################################
@@ -645,6 +685,7 @@ tasks:
     - liburing
     - libseccomp
     - nettle
+    - zstd
     vars:
       NAME: 'qemu-{{.VERSION}}'
     sources:
@@ -688,6 +729,7 @@ tasks:
       --enable-slirp
       --enable-tcg
       --enable-vnc
+      --enable-zstd
     - make -C 'build/{{.NAME}}' -j"$(nproc)"
     - make -C 'build/{{.NAME}}' DESTDIR='{{.WORK_DIR}}/pkg' install
 
@@ -750,6 +792,9 @@ tasks:
     - for: [COPYINGv2, COPYINGv3, COPYING.LESSERv3]
       task: license
       vars: {NAME: nettle, SRC: 'nettle-{{.NETTLE_VERSION}}', FILE: '{{.ITEM}}'}
+    - for: [LICENSE, COPYING]
+      task: license
+      vars: {NAME: zstd, SRC: 'zstd-{{.ZSTD_VERSION}}', FILE: '{{.ITEM}}'}
 
   license:
     internal: true
