@@ -84,6 +84,11 @@ for b in qemu-system-x86_64 qemu-system-aarch64 qemu-img qemu-io qemu-nbd qemu-s
 done
 run "${prefix}/bin/qemu-edid" -h >/dev/null
 
+section "libcap-ng"
+# The helpers only take the user and group to drop privileges to, and only
+# drop capabilities, when they are built with libcap-ng
+run "${prefix}/bin/qemu-pr-helper" --help | grep -e '--user=USER' || die "qemu-pr-helper is built without libcap-ng"
+
 ################################################################################
 # Block layer
 ################################################################################

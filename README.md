@@ -28,7 +28,7 @@ share/doc/*/*     (licenses of QEMU and the bundled libraries)
 
 Only glibc is used from the system.
 The other libraries are built from source as shared libraries and bundled in `lib/`:
-glib, pixman, libslirp, libfdt (dtc), zlib, libffi, pcre2, libaio, liburing, libseccomp, nettle and zstd.
+glib, pixman, libslirp, libfdt (dtc), zlib, libffi, pcre2, libaio, liburing, libseccomp, nettle, zstd and libcap-ng.
 Every binary and library has `RUNPATH=$ORIGIN/../lib`, and QEMU is built relocatable, so the tree works wherever it is extracted.
 
 The minimum glibc is 2.27, the first release with `memfd_create()`, which libvhost-user in QEMU calls without a fallback.
@@ -43,6 +43,8 @@ GUI frontends (GTK, SDL), audio other than OSS, TLS and public key algorithms (v
 
 `aio=io_uring` needs Linux 5.1 or later, and fails where io_uring is blocked, such as under the default seccomp profile of Docker or with the `kernel.io_uring_disabled` sysctl.
 
+libcap-ng lets `qemu-bridge-helper`, `qemu-pr-helper` and `qemu-vmsr-helper` drop the capabilities they do not need, and `qemu-pr-helper` take `--user` and `--group` to drop privileges to.
+
 `qemu-bridge-helper` is usually installed setuid, and the dynamic loader ignores `$ORIGIN` for setuid programs.
 To use it setuid, the bundled libraries must be visible to the loader by other means, such as `ld.so.conf`.
 
@@ -51,6 +53,7 @@ CI tests the `x86_64-linux-gnu` tarball before signing and releasing it, on the 
 The tests run on the runner and again in an Ubuntu 18.04 container to check the minimum glibc:
 
 - Every binary and library loads, and resolves the libraries other than glibc to the bundled ones.
+- `qemu-pr-helper` is built with libcap-ng.
 - `qemu-img` and `qemu-io` read and write qcow2 images with the threads, Linux AIO and io_uring backends, zstd compressed qcow2 images and LUKS images.
 - An empty machine is started over QMP with KVM and TCG.
 - The stoptrigger plugin stops a TCG guest after a given number of instructions.

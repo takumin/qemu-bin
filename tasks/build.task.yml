@@ -38,6 +38,8 @@ vars:
   LIBSECCOMP_VERSION: '2.6.1'
   # renovate: datasource=gitlab-tags depName=nettle/nettle registryUrl=https://git.lysator.liu.se extractVersion=^nettle_(?<version>[\d.]+)_release_\d+$
   NETTLE_VERSION: '3.10.2'
+  # renovate: datasource=github-tags depName=stevegrubb/libcap-ng extractVersion=^v(?<version>.+)$
+  LIBCAP_NG_VERSION: '0.9.6'
   # renovate: datasource=github-releases depName=facebook/zstd extractVersion=^v(?<version>.+)$
   ZSTD_VERSION: '1.5.7'
   DL_DIR: '{{.ROOT_DIR}}/.build/dl'
@@ -141,6 +143,7 @@ tasks:
       --arg libseccomp '{{.LIBSECCOMP_VERSION}}'
       --arg nettle '{{.NETTLE_VERSION}}'
       --arg zstd '{{.ZSTD_VERSION}}'
+      --arg libcap-ng '{{.LIBCAP_NG_VERSION}}'
       --arg zlib '{{.ZLIB_VERSION}}'
       --arg libffi '{{.LIBFFI_VERSION}}'
       --arg pcre2 '{{.PCRE2_VERSION}}'
@@ -271,6 +274,12 @@ tasks:
         NAME: 'zstd-{{.ZSTD_VERSION}}'
         FILE: 'zstd-{{.ZSTD_VERSION}}.tar.gz'
         URL: 'https://github.com/facebook/zstd/releases/download/v{{.ZSTD_VERSION}}/zstd-{{.ZSTD_VERSION}}.tar.gz'
+    # libcap-ng releases only the tag archive, without a configure script
+    - task: extract
+      vars:
+        NAME: 'libcap-ng-{{.LIBCAP_NG_VERSION}}'
+        FILE: 'libcap-ng-{{.LIBCAP_NG_VERSION}}.tar.gz'
+        URL: 'https://github.com/stevegrubb/libcap-ng/archive/refs/tags/v{{.LIBCAP_NG_VERSION}}.tar.gz'
     - task: extract
       vars:
         NAME: 'qemu-{{.VERSION}}'
@@ -668,6 +677,34 @@ tasks:
       PREFIX=/usr/local LIBDIR=/usr/local/lib DESTDIR='{{.SYSROOT}}'
       install-pc install-includes install-shared
 
+  # Lets qemu-pr-helper, qemu-vmsr-helper and qemu-bridge-helper drop the
+  # capabilities they do not need
+  libcap-ng:
+    desc: '{{.TASK}}'
+    run: once
+    deps:
+    - toolchain
+    - sources
+    vars:
+      NAME: 'libcap-ng-{{.LIBCAP_NG_VERSION}}'
+    sources:
+    - '{{.DL_DIR}}/{{.NAME}}.tar.gz'
+    - '{{.ROOT_DIR}}/src/toolchain/*'
+    generates:
+    - '{{.SYSROOT}}/usr/local/lib/libcap-ng.so'
+    cmds:
+    # The tag archive has no configure script, so generate it with the
+    # autotools of the build host, as the autogen.sh of libcap-ng does.
+    - >-
+      cd '{{.SRC_DIR}}/{{.NAME}}' &&
+      touch NEWS &&
+      autoreconf -fi
+    - task: autotools
+      vars:
+        NAME: '{{.NAME}}'
+        ARGS: >-
+          --without-python3
+
   ##############################################################################
   # QEMU
   ##############################################################################
@@ -686,6 +723,7 @@ tasks:
     - libseccomp
     - nettle
     - zstd
+    - libcap-ng
     vars:
       NAME: 'qemu-{{.VERSION}}'
     sources:
@@ -718,6 +756,7 @@ tasks:
       --disable-rust
       --disable-modules
       --disable-guest-agent
+      --enable-cap-ng
       --enable-fdt=system
       --enable-kvm
       --enable-linux-aio
@@ -802,6 +841,9 @@ tasks:
     - for: [LICENSE, COPYING]
       task: license
       vars: {NAME: zstd, SRC: 'zstd-{{.ZSTD_VERSION}}', FILE: '{{.ITEM}}'}
+    - for: [COPYING, COPYING.LIB]
+      task: license
+      vars: {NAME: libcap-ng, SRC: 'libcap-ng-{{.LIBCAP_NG_VERSION}}', FILE: '{{.ITEM}}'}
 
   license:
     internal: true
