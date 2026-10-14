@@ -378,8 +378,12 @@ tasks:
       {{.ARGS}}
     - make -C 'build/{{.NAME}}' -j"$(nproc)"
     - make -C 'build/{{.NAME}}' DESTDIR='{{.SYSROOT}}' install
-    # libtool archives point at /usr/local and are not needed
-    - coreutils rm -f '{{.SYSROOT}}'/usr/local/lib/*.la
+    # libtool archives point at /usr/local and are not needed. Only remove the
+    # ones this package built: autotools packages build in parallel, and a
+    # shared *.la glob races with another package removing the same files.
+    - >-
+      find 'build/{{.NAME}}' -name '*.la' -printf '%f\n' | sort -u |
+      xargs -r -I{} coreutils rm -f '{{.SYSROOT}}/usr/local/lib/{}'
 
   zlib:
     desc: '{{.TASK}}'
