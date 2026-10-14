@@ -62,12 +62,15 @@ tasks:
     - assets
     - extract
     cmds:
-    # The default seccomp profile of Docker blocks io_uring
+    # The default seccomp profile of Docker blocks io_uring. The terminfo
+    # databases are hidden, so the curses display uses the descriptions built
+    # into ncurses.
     - >-
       docker run --rm
       --user "$(id -u):$(id -g)"
       $(coreutils test -e /dev/kvm && echo "--device /dev/kvm --group-add $(coreutils stat -c %g /dev/kvm)")
       --security-opt seccomp=unconfined
+      --tmpfs /etc/terminfo --tmpfs /lib/terminfo --tmpfs /usr/share/terminfo
       -e QEMU_BIN_TEST_REQUIRE_KVM
       -v '{{.ROOT_DIR}}/src/test:/src:ro'
       -v '{{.TEST_DIR}}:/test'

@@ -38,6 +38,11 @@
 			"allowedVersions": "<4"
 		},
 		{
+			"description": "ncurses tags its releases as v6_6, the patch snapshots in between as v6_6_20251230",
+			"matchDepNames": ["ThomasDickey/ncurses-snapshots"],
+			"versioning": "regex:^(?<major>\\d+)_(?<minor>\\d+)$"
+		},
+		{
 			"description": "Python only runs QEMU's configure, a new minor version is a manual change",
 			"matchManagers": ["pyenv"],
 			"matchUpdateTypes": ["major", "minor"],

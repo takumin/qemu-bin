@@ -28,18 +28,29 @@ share/doc/*/*     (licenses of QEMU and the bundled libraries)
 
 Only glibc is used from the system.
 The other libraries are built from source as shared libraries and bundled in `lib/`:
-glib, pixman, libslirp, libfdt (dtc), zlib, libffi, pcre2, libaio, liburing, libseccomp, nettle, zstd and libcap-ng.
+glib, pixman, libslirp, libfdt (dtc), zlib, libffi, pcre2, libaio, liburing, libseccomp, nettle, zstd, libcap-ng, libfuse and ncurses.
 Every binary and library has `RUNPATH=$ORIGIN/../lib`, and QEMU is built relocatable, so the tree works wherever it is extracted.
 
 The minimum glibc is 2.27, the first release with `memfd_create()`, which libvhost-user in QEMU calls without a fallback.
 
-The build enables TCG, KVM, user mode networking (slirp), passt, VNC, the VirtFS (9p) backend, Linux AIO, io_uring, the seccomp sandbox (`-sandbox on`), zstd compression and TCG plugins.
+The build enables TCG, KVM, user mode networking (slirp), passt, VNC, the curses display, the VirtFS (9p) backend, Linux AIO, io_uring, FUSE exports, the seccomp sandbox (`-sandbox on`), zstd compression and TCG plugins.
 zstd compresses qcow2 images (`compression_type=zstd`) and migration streams (`multifd-compression=zstd`).
 TCG plugins instrument guests run with TCG, such as `-plugin lib/qemu/plugins/libhotblocks.so -d plugin`.
 Other plugins can be built against `include/qemu-plugin.h` and the system glib headers.
 The plugins in `lib/qemu/plugins` are meant to be loaded by QEMU only, and use the glib that QEMU has loaded.
 nettle is the crypto backend, so LUKS images (`qemu-img create -f luks`, qcow2 `encrypt.format=luks`) and VNC password authentication work.
 GUI frontends (GTK, SDL), audio other than OSS, TLS and public key algorithms (virtio-crypto akcipher) are not built.
+
+`-display curses` shows the text console of the guest in the terminal.
+The bundled ncurses reads the terminal descriptions from `/etc/terminfo`, `/lib/terminfo` and `/usr/share/terminfo`, as well as from `TERMINFO`, `TERMINFO_DIRS` and `~/.terminfo`.
+Where none of them has the description of `TERM`, such as in a container without terminfo, the descriptions built into ncurses are used for `linux`, `vt100`, `vt220`, `xterm`, `xterm-256color`, `screen`, `screen-256color`, `tmux` and `tmux-256color`.
+
+`qemu-storage-daemon --export type=fuse` exports a block device as a regular file, such as `--export type=fuse,id=exp0,node-name=disk0,mountpoint=disk.raw,writable=on`, where `disk.raw` is an existing file.
+A user other than root mounts it with the setuid `fusermount3`, which is not bundled and comes from the fuse3 package of the system.
+libfuse looks for it in `/usr/local/bin` and then in `PATH`.
+The user also needs access to `/dev/fuse`, which a container usually lacks.
+To let other users access the export (`allow-other=on`), `user_allow_other` must be set in `/etc/fuse.conf`.
+With the default `allow-other=auto`, the export is made accessible to its owner only when it is not set.
 
 `aio=io_uring` needs Linux 5.1 or later, and fails where io_uring is blocked, such as under the default seccomp profile of Docker or with the `kernel.io_uring_disabled` sysctl.
 
@@ -55,8 +66,11 @@ The tests run on the runner and again in an Ubuntu 18.04 container to check the 
 - Every binary and library loads, and resolves the libraries other than glibc to the bundled ones.
 - `qemu-pr-helper` is built with libcap-ng.
 - `qemu-img` and `qemu-io` read and write qcow2 images with the threads, Linux AIO and io_uring backends, zstd compressed qcow2 images and LUKS images.
+- On the runner, `qemu-storage-daemon` exports a qcow2 image over FUSE, which the runner user mounts with `fusermount3`, and the export is read, written and reports holes.
 - An empty machine is started over QMP with KVM and TCG.
 - The stoptrigger plugin stops a TCG guest after a given number of instructions.
+- The curses display draws the messages of SeaBIOS in a terminal made by `script`.
+  The test in the container hides the terminfo databases, so the descriptions built into ncurses are used.
 - A guest boots on x86_64 with KVM and TCG and on aarch64 with TCG, under `-sandbox on`.
   Its `/init` (`src/test/init.c`) checks the accelerator, reads and writes a virtio-blk disk and connects to the host through user mode networking.
 
