@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: MIT
 #
-# Test an extracted release tarball. Only bash, coreutils, grep and ldd are
-# used, so the same script runs on the host and in an Ubuntu 18.04 container
-# with the minimum glibc.
+# Test an extracted release tarball. Only bash, coreutils, grep, ldd and
+# script (util-linux) are used, so the same script runs on the host and in an
+# Ubuntu 18.04 container with the minimum glibc.
 #
 # usage: run.sh <prefix> <assets> <workdir>
 #
@@ -13,6 +13,12 @@
 #
 # The KVM tests are skipped when /dev/kvm is not usable, unless
 # QEMU_BIN_TEST_REQUIRE_KVM=1 is set.
+#
+# The FUSE test is skipped when /dev/fuse is not usable, or fusermount3 is
+# not installed for a user other than root, unless QEMU_BIN_TEST_REQUIRE_FUSE=1
+# is set.
+#
+# The curses test runs with TERM=${QEMU_BIN_TEST_TERM:-xterm-256color}.
 
 set -euo pipefail
 
@@ -41,6 +47,21 @@ have_kvm() {
 	[[ -r /dev/kvm && -w /dev/kvm ]]
 }
 
+# A user other than root mounts with the setuid fusermount3 of the system
+have_fuse() {
+	[[ -r /dev/fuse && -w /dev/fuse ]] && { [[ "$(id -u)" == 0 ]] || command -v fusermount3 >/dev/null; }
+}
+
+# Stop the daemons left by a failed test, so the FUSE export is unmounted
+pidfiles=()
+cleanup() {
+	local f
+	for f in "${pidfiles[@]}"; do
+		[[ -s "${f}" ]] && kill "$(cat "${f}")" 2>/dev/null || true
+	done
+}
+trap cleanup EXIT
+
 rm -rf "${workdir}"
 mkdir -p "${workdir}"
 workdir="$(cd "${workdir}" && pwd)"
@@ -54,6 +75,14 @@ elif [[ "${QEMU_BIN_TEST_REQUIRE_KVM:-}" == 1 ]]; then
 	die "/dev/kvm is not usable"
 else
 	echo "KVM: not available, the KVM tests are skipped"
+fi
+echo "UID: $(id -u)"
+if have_fuse; then
+	echo "FUSE: available$(command -v fusermount3 >/dev/null && echo ", $(fusermount3 --version 2>&1)")"
+elif [[ "${QEMU_BIN_TEST_REQUIRE_FUSE:-}" == 1 ]]; then
+	die "/dev/fuse or fusermount3 is not usable"
+else
+	echo "FUSE: not available, the FUSE test is skipped"
 fi
 
 ################################################################################
@@ -134,6 +163,39 @@ qemu_io "${secret[@]}" --image-opts -c 'write -P 0x44 0 1M' -c 'read -P 0x44 0 1
 	"driver=qcow2,encrypt.key-secret=sec0,file.filename=${enc}"
 qemu_img info "${enc}" | grep 'encrypted: yes' >/dev/null || die "${enc} is not encrypted"
 
+section "FUSE export"
+if have_fuse; then
+	fuse_img="${workdir}/fuse.qcow2"
+	fuse_pid="${workdir}/fuse.pid"
+	mnt="${workdir}/fuse.raw"
+	qemu_img create -f qcow2 "${fuse_img}" 16M
+	: >"${mnt}"
+	pidfiles+=("${fuse_pid}")
+	run "${prefix}/bin/qemu-storage-daemon" \
+		--blockdev "driver=file,node-name=file0,filename=${fuse_img}" \
+		--blockdev 'driver=qcow2,node-name=disk0,file=file0' \
+		--export "type=fuse,id=exp0,node-name=disk0,mountpoint=${mnt},writable=on" \
+		--pidfile "${fuse_pid}" --daemonize
+	grep -q " ${mnt} " /proc/self/mountinfo || die "${mnt} is not mounted"
+	qemu_io -f raw -c 'write -P 0x77 0 1M' -c 'read -P 0x77 0 1M' -c 'flush' "${mnt}"
+	# SEEK_DATA and SEEK_HOLE (fuse-lseek) find the unallocated clusters
+	out="$(qemu_img map --output=json -f raw "${mnt}")"
+	echo "${out}"
+	grep -q '"data": false' <<<"${out}" || die "the export does not report holes"
+	pid="$(cat "${fuse_pid}")"
+	kill "${pid}"
+	for _ in $(seq 300); do
+		kill -0 "${pid}" 2>/dev/null || break
+		sleep 0.1
+	done
+	! kill -0 "${pid}" 2>/dev/null || die "qemu-storage-daemon does not exit"
+	pidfiles=()
+	! grep -q " ${mnt} " /proc/self/mountinfo || die "${mnt} is not unmounted"
+	qemu_io -f qcow2 -c 'read -P 0x77 0 1M' "${fuse_img}"
+else
+	echo "skipped"
+fi
+
 ################################################################################
 # QMP
 ################################################################################
@@ -186,6 +248,39 @@ run timeout 60 "${prefix}/bin/qemu-system-x86_64" \
 cat "${workdir}/plugin.log"
 [[ "${code}" == 42 ]] || die "qemu-system-x86_64 exited with ${code}, not the stoptrigger exit code"
 grep -q 'icount reached' "${workdir}/plugin.log" || die "stoptrigger did not stop the guest"
+
+################################################################################
+# curses
+################################################################################
+
+# SeaBIOS prints its messages on the VGA text console, which the curses
+# display draws on the terminal of script. With no bootable device, SeaBIOS
+# reboots at once with reboot-timeout=0, and QEMU exits with -no-reboot.
+term="${QEMU_BIN_TEST_TERM:-xterm-256color}"
+section "curses display: TERM=${term}"
+terminfo="not installed, the built-in description is used"
+for d in "${HOME}/.terminfo" /etc/terminfo /lib/terminfo /usr/share/terminfo; do
+	if [[ -e "${d}/${term:0:1}/${term}" ]]; then
+		terminfo="${d}/${term:0:1}/${term}"
+		break
+	fi
+done
+echo "terminfo: ${terminfo}"
+code=0
+TERM="${term}" run timeout 60 script -qec "$(printf '%q ' \
+	"${prefix}/bin/qemu-system-x86_64" \
+	-machine pc -accel tcg -nodefaults -vga std -display curses -sandbox on \
+	-boot reboot-timeout=0 -no-reboot)" \
+	"${workdir}/curses.log" </dev/null >/dev/null || code=$?
+[[ "${code}" == 0 ]] || {
+	cat -v "${workdir}/curses.log"
+	die "qemu-system-x86_64 exited with ${code}"
+}
+grep -aq 'No bootable device' "${workdir}/curses.log" || {
+	cat -v "${workdir}/curses.log"
+	die "the curses display did not draw the console"
+}
+echo "drawn: $(grep -ao 'BIOS (version [^)]*)' "${workdir}/curses.log" | head -1)"
 
 ################################################################################
 # Guest boot

@@ -40,6 +40,11 @@ vars:
   NETTLE_VERSION: '3.10.2'
   # renovate: datasource=github-tags depName=stevegrubb/libcap-ng extractVersion=^v(?<version>.+)$
   LIBCAP_NG_VERSION: '0.9.6'
+  # renovate: datasource=github-releases depName=libfuse/libfuse extractVersion=^fuse-(?<version>.+)$
+  LIBFUSE_VERSION: '3.18.3'
+  # Tagged as v6_6, the release is ncurses-6.6
+  # renovate: datasource=github-tags depName=ThomasDickey/ncurses-snapshots extractVersion=^v(?<version>\d+_\d+)$
+  NCURSES_VERSION: '6_6'
   # renovate: datasource=github-releases depName=facebook/zstd extractVersion=^v(?<version>.+)$
   ZSTD_VERSION: '1.5.7'
   DL_DIR: '{{.ROOT_DIR}}/.build/dl'
@@ -144,6 +149,8 @@ tasks:
       --arg nettle '{{.NETTLE_VERSION}}'
       --arg zstd '{{.ZSTD_VERSION}}'
       --arg libcap-ng '{{.LIBCAP_NG_VERSION}}'
+      --arg libfuse '{{.LIBFUSE_VERSION}}'
+      --arg ncurses '{{.NCURSES_VERSION | replace "_" "."}}'
       --arg zlib '{{.ZLIB_VERSION}}'
       --arg libffi '{{.LIBFFI_VERSION}}'
       --arg pcre2 '{{.PCRE2_VERSION}}'
@@ -280,6 +287,16 @@ tasks:
         NAME: 'libcap-ng-{{.LIBCAP_NG_VERSION}}'
         FILE: 'libcap-ng-{{.LIBCAP_NG_VERSION}}.tar.gz'
         URL: 'https://github.com/stevegrubb/libcap-ng/archive/refs/tags/v{{.LIBCAP_NG_VERSION}}.tar.gz'
+    - task: extract
+      vars:
+        NAME: 'libfuse-{{.LIBFUSE_VERSION}}'
+        FILE: 'fuse-{{.LIBFUSE_VERSION}}.tar.gz'
+        URL: 'https://github.com/libfuse/libfuse/releases/download/fuse-{{.LIBFUSE_VERSION}}/fuse-{{.LIBFUSE_VERSION}}.tar.gz'
+    - task: extract
+      vars:
+        NAME: 'ncurses-{{.NCURSES_VERSION | replace "_" "."}}'
+        FILE: 'ncurses-{{.NCURSES_VERSION | replace "_" "."}}.tar.gz'
+        URL: 'https://ftp.gnu.org/gnu/ncurses/ncurses-{{.NCURSES_VERSION | replace "_" "."}}.tar.gz'
     - task: extract
       vars:
         NAME: 'qemu-{{.VERSION}}'
@@ -705,6 +722,104 @@ tasks:
         ARGS: >-
           --without-python3
 
+  # qemu-storage-daemon --export type=fuse. Only the library is built, a user
+  # mounts with the setuid fusermount3 of the system, which libfuse runs from
+  # PATH when it is not in /usr/local/bin.
+  libfuse:
+    desc: '{{.TASK}}'
+    run: once
+    deps:
+    - toolchain
+    - sources
+    sources:
+    - '{{.DL_DIR}}/fuse-{{.LIBFUSE_VERSION}}.tar.gz'
+    - '{{.ROOT_DIR}}/src/toolchain/*'
+    generates:
+    - '{{.SYSROOT}}/usr/local/lib/libfuse3.so'
+    cmds:
+    - task: meson
+      vars:
+        NAME: 'libfuse-{{.LIBFUSE_VERSION}}'
+        ARGS: >-
+          -Dutils=false
+          -Dexamples=false
+          -Dtests=false
+          -Duseroot=false
+          -Dinitscriptdir=
+          -Denable-io-uring=false
+
+  # -display curses. The library cannot find a terminfo database relative to
+  # the binaries, so it reads the databases of the system, and falls back to
+  # the descriptions of common terminals built into it, such as in a
+  # container without terminfo.
+  ncurses:
+    desc: '{{.TASK}}'
+    run: once
+    dir: '{{.WORK_DIR}}'
+    deps:
+    - toolchain
+    - sources
+    vars:
+      NAME: 'ncurses-{{.NCURSES_VERSION | replace "_" "."}}'
+      HOST_TOOLS: '{{.WORK_DIR}}/build/{{.NAME}}-host'
+      FALLBACKS: >-
+        linux,vt100,vt220,xterm,xterm-256color,
+        screen,screen-256color,tmux,tmux-256color
+    sources:
+    - '{{.DL_DIR}}/{{.NAME}}.tar.gz'
+    - '{{.ROOT_DIR}}/src/toolchain/*'
+    generates:
+    - '{{.SYSROOT}}/usr/local/lib/libncursesw.so'
+    cmds:
+    # The fallbacks are compiled with tic and infocmp of the same version,
+    # built for the build host
+    - cmd: coreutils rm -rf '{{.HOST_TOOLS}}'
+      silent: true
+    - cmd: coreutils mkdir -p '{{.HOST_TOOLS}}'
+      silent: true
+    - >-
+      cd '{{.HOST_TOOLS}}' &&
+      '{{.SRC_DIR}}/{{.NAME}}/configure'
+      --prefix='{{.HOST_TOOLS}}/inst'
+      --without-shared
+      --without-debug
+      --without-cxx
+      --without-cxx-binding
+      --without-ada
+      --without-tests
+      --without-manpages
+      --disable-db-install
+      --enable-widec
+    - make -C '{{.HOST_TOOLS}}' -j"$(nproc)"
+    - make -C '{{.HOST_TOOLS}}' install.progs
+    # configure links the shared libraries with -Wl,-stats,-lc, which zig cc
+    # rejects. libc is linked anyway.
+    - sed -i 's/,-stats,-lc -o/ -o/' '{{.SRC_DIR}}/{{.NAME}}/configure'
+    - task: autotools
+      vars:
+        NAME: '{{.NAME}}'
+        ARGS: >-
+          --with-shared
+          --without-normal
+          --without-debug
+          --without-cxx
+          --without-cxx-binding
+          --without-ada
+          --without-progs
+          --without-tests
+          --without-manpages
+          --disable-stripping
+          --enable-widec
+          --enable-pc-files
+          --with-pkg-config-libdir=/usr/local/lib/pkgconfig
+          --disable-db-install
+          --with-default-terminfo-dir=/usr/share/terminfo
+          --with-terminfo-dirs=/etc/terminfo:/lib/terminfo:/usr/share/terminfo
+          --with-fallbacks='{{.FALLBACKS | replace " " ""}}'
+          --with-tic-path='{{.HOST_TOOLS}}/inst/bin/tic'
+          --with-infocmp-path='{{.HOST_TOOLS}}/inst/bin/infocmp'
+          --with-build-cc=cc
+
   ##############################################################################
   # QEMU
   ##############################################################################
@@ -724,6 +839,8 @@ tasks:
     - nettle
     - zstd
     - libcap-ng
+    - libfuse
+    - ncurses
     vars:
       NAME: 'qemu-{{.VERSION}}'
     sources:
@@ -757,7 +874,11 @@ tasks:
       --disable-modules
       --disable-guest-agent
       --enable-cap-ng
+      --enable-curses
       --enable-fdt=system
+      --enable-fuse
+      --enable-fuse-lseek
+      --enable-iconv
       --enable-kvm
       --enable-linux-aio
       --enable-linux-io-uring
@@ -844,6 +965,11 @@ tasks:
     - for: [COPYING, COPYING.LIB]
       task: license
       vars: {NAME: libcap-ng, SRC: 'libcap-ng-{{.LIBCAP_NG_VERSION}}', FILE: '{{.ITEM}}'}
+    - for: [LICENSE, LGPL2.txt]
+      task: license
+      vars: {NAME: libfuse, SRC: 'libfuse-{{.LIBFUSE_VERSION}}', FILE: '{{.ITEM}}'}
+    - task: license
+      vars: {NAME: ncurses, SRC: 'ncurses-{{.NCURSES_VERSION | replace "_" "."}}', FILE: COPYING}
 
   license:
     internal: true
