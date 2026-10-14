@@ -60,8 +60,10 @@ fi
 # Binaries
 ################################################################################
 
+# The TCG plugins in lib/qemu/plugins are only loaded by QEMU, which has
+# already loaded glib, and are tested by loading them below.
 section "Shared libraries"
-for f in "${prefix}"/bin/* "${prefix}"/libexec/* "${prefix}"/lib/*; do
+for f in "${prefix}"/bin/* "${prefix}"/libexec/* "${prefix}"/lib/*.so*; do
 	echo "${f#"${prefix}"/}"
 	out="$(ldd "${f}" 2>&1)" || die "ldd ${f}: ${out}"
 	if grep -E 'not found|not a dynamic' <<<"${out}"; then
@@ -159,6 +161,26 @@ if have_kvm; then
 	echo "${out}"
 	grep -q '"enabled": true, "present": true' <<<"${out}" || die "KVM is not enabled"
 fi
+
+################################################################################
+# TCG plugins
+################################################################################
+
+section "TCG plugins"
+[[ -f "${prefix}/include/qemu-plugin.h" ]] || die "qemu-plugin.h is not installed"
+plugins="${prefix}/lib/qemu/plugins"
+ls "${plugins}"
+# SeaBIOS runs far more instructions than the limit, and stoptrigger exits
+# with the given code when the guest reaches it.
+code=0
+run timeout 60 "${prefix}/bin/qemu-system-x86_64" \
+	-machine pc -accel tcg -nodefaults -display none -sandbox on \
+	-plugin "${plugins}/libstoptrigger.so,icount=100000:42" \
+	-plugin "${plugins}/libhotblocks.so" \
+	-d plugin -D "${workdir}/plugin.log" || code=$?
+cat "${workdir}/plugin.log"
+[[ "${code}" == 42 ]] || die "qemu-system-x86_64 exited with ${code}, not the stoptrigger exit code"
+grep -q 'icount reached' "${workdir}/plugin.log" || die "stoptrigger did not stop the guest"
 
 ################################################################################
 # Guest boot
