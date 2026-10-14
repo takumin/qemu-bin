@@ -19,7 +19,9 @@ bin/qemu-edid
 bin/qemu-pr-helper
 bin/qemu-vmsr-helper
 libexec/qemu-bridge-helper
+include/qemu-plugin.h
 lib/*.so.*
+lib/qemu/plugins/*.so   (TCG plugins from QEMU's contrib/plugins)
 share/qemu/*
 share/doc/*/*     (licenses of QEMU and the bundled libraries)
 ```
@@ -31,8 +33,11 @@ Every binary and library has `RUNPATH=$ORIGIN/../lib`, and QEMU is built relocat
 
 The minimum glibc is 2.27, the first release with `memfd_create()`, which libvhost-user in QEMU calls without a fallback.
 
-The build enables TCG, KVM, user mode networking (slirp), passt, VNC, the VirtFS (9p) backend, Linux AIO, io_uring, the seccomp sandbox (`-sandbox on`) and zstd compression.
+The build enables TCG, KVM, user mode networking (slirp), passt, VNC, the VirtFS (9p) backend, Linux AIO, io_uring, the seccomp sandbox (`-sandbox on`), zstd compression and TCG plugins.
 zstd compresses qcow2 images (`compression_type=zstd`) and migration streams (`multifd-compression=zstd`).
+TCG plugins instrument guests run with TCG, such as `-plugin lib/qemu/plugins/libhotblocks.so -d plugin`.
+Other plugins can be built against `include/qemu-plugin.h` and the system glib headers.
+The plugins in `lib/qemu/plugins` are meant to be loaded by QEMU only, and use the glib that QEMU has loaded.
 nettle is the crypto backend, so LUKS images (`qemu-img create -f luks`, qcow2 `encrypt.format=luks`) and VNC password authentication work.
 GUI frontends (GTK, SDL), audio other than OSS, TLS and public key algorithms (virtio-crypto akcipher) are not built.
 
@@ -48,6 +53,7 @@ The tests run on the runner and again in an Ubuntu 18.04 container to check the 
 - Every binary and library loads, and resolves the libraries other than glibc to the bundled ones.
 - `qemu-img` and `qemu-io` read and write qcow2 images with the threads, Linux AIO and io_uring backends, zstd compressed qcow2 images and LUKS images.
 - An empty machine is started over QMP with KVM and TCG.
+- The stoptrigger plugin stops a TCG guest after a given number of instructions.
 - A guest boots on x86_64 with KVM and TCG and on aarch64 with TCG, under `-sandbox on`.
   Its `/init` (`src/test/init.c`) checks the accelerator, reads and writes a virtio-blk disk and connects to the host through user mode networking.
 
