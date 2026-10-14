@@ -54,6 +54,40 @@ With the default `allow-other=auto`, the export is made accessible to its owner 
 
 `aio=io_uring` needs Linux 5.1 or later, and fails where io_uring is blocked, such as under the default seccomp profile of Docker or with the `kernel.io_uring_disabled` sysctl.
 
+`-netdev passt` gives the guest user mode networking through [passt](https://passt.top/), which is faster than slirp and needs no privileges.
+passt is not bundled, and QEMU runs the `passt` found in `PATH`, or the one given by `path=`.
+Prebuilt passt is available from [passt-bin](https://github.com/takumin/passt-bin), which [aqua](https://aquaproj.github.io/) installs together with this package:
+
+```console
+$ aqua g -i takumin/qemu-bin takumin/passt-bin
+$ aqua i
+```
+
+The `passt` that aqua puts in `PATH` picks its version from the `aqua.yaml` of the current directory or the global configuration of aqua.
+Where QEMU runs outside of them, give the real path, such as `path=$(aqua which passt)`.
+
+With `vhost-user=on`, passt reads and writes the guest memory directly, so the guest RAM must be shared:
+
+```console
+$ qemu-system-x86_64 -machine q35,memory-backend=mem \
+    -object memory-backend-memfd,id=mem,size=1G,share=on \
+    -netdev passt,id=net0,vhost-user=on \
+    -device virtio-net-pci,netdev=net0
+```
+
+passt announces the MTU of 65520 over DHCP and NDP, and a guest that configures its address statically should set it as well, since the guest receives much faster with it than with the MTU of 1500.
+passt started by QEMU inherits the seccomp filter of `-sandbox on` and is killed by it.
+To use both, start passt first and connect QEMU to its socket:
+
+```console
+$ passt --vhost-user --socket-path "${XDG_RUNTIME_DIR}/passt.socket"
+$ qemu-system-x86_64 -sandbox on -machine q35,memory-backend=mem \
+    -object memory-backend-memfd,id=mem,size=1G,share=on \
+    -chardev socket,id=chr0,path="${XDG_RUNTIME_DIR}/passt.socket" \
+    -netdev vhost-user,id=net0,chardev=chr0 \
+    -device virtio-net-pci,netdev=net0
+```
+
 libcap-ng lets `qemu-bridge-helper`, `qemu-pr-helper` and `qemu-vmsr-helper` drop the capabilities they do not need, and `qemu-pr-helper` take `--user` and `--group` to drop privileges to.
 
 `qemu-bridge-helper` is usually installed setuid, and the dynamic loader ignores `$ORIGIN` for setuid programs.
