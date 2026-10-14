@@ -26,12 +26,13 @@ share/doc/*/*     (licenses of QEMU and the bundled libraries)
 
 Only glibc is used from the system.
 The other libraries are built from source as shared libraries and bundled in `lib/`:
-glib, pixman, libslirp, libfdt (dtc), zlib, libffi, pcre2, libaio, liburing, libseccomp and nettle.
+glib, pixman, libslirp, libfdt (dtc), zlib, libffi, pcre2, libaio, liburing, libseccomp, nettle and zstd.
 Every binary and library has `RUNPATH=$ORIGIN/../lib`, and QEMU is built relocatable, so the tree works wherever it is extracted.
 
 The minimum glibc is 2.27, the first release with `memfd_create()`, which libvhost-user in QEMU calls without a fallback.
 
-The build enables TCG, KVM, user mode networking (slirp), passt, VNC, the VirtFS (9p) backend, Linux AIO, io_uring and the seccomp sandbox (`-sandbox on`).
+The build enables TCG, KVM, user mode networking (slirp), passt, VNC, the VirtFS (9p) backend, Linux AIO, io_uring, the seccomp sandbox (`-sandbox on`) and zstd compression.
+zstd compresses qcow2 images (`compression_type=zstd`) and migration streams (`multifd-compression=zstd`).
 nettle is the crypto backend, so LUKS images (`qemu-img create -f luks`, qcow2 `encrypt.format=luks`) and VNC password authentication work.
 GUI frontends (GTK, SDL), audio other than OSS, TLS and public key algorithms (virtio-crypto akcipher) are not built.
 
@@ -45,7 +46,7 @@ CI tests the `x86_64-linux-gnu` tarball before signing and releasing it, on the 
 The tests run on the runner and again in an Ubuntu 18.04 container to check the minimum glibc:
 
 - Every binary and library loads, and resolves the libraries other than glibc to the bundled ones.
-- `qemu-img` and `qemu-io` read and write qcow2 images with the threads, Linux AIO and io_uring backends, and LUKS images.
+- `qemu-img` and `qemu-io` read and write qcow2 images with the threads, Linux AIO and io_uring backends, zstd compressed qcow2 images and LUKS images.
 - An empty machine is started over QMP with KVM and TCG.
 - A guest boots on x86_64 with KVM and TCG and on aarch64 with TCG, under `-sandbox on`.
   Its `/init` (`src/test/init.c`) checks the accelerator, reads and writes a virtio-blk disk and connects to the host through user mode networking.
