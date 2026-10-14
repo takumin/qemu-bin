@@ -7,6 +7,11 @@
 # - lld rejects version scripts that name undefined symbols (zlib, libffi).
 # - The bundled shared libraries are installed in lib/ next to bin/ and
 #   libexec/, so every binary and library looks them up from $ORIGIN/../lib.
+# - zig cc rejects --dynamic-list, which QEMU uses to export the TCG plugin
+#   API from the emulators, and has no other way to export only some
+#   symbols. It is replaced with --export-dynamic, which exports every
+#   symbol as QEMU does when built with modules. Meson passes the link
+#   arguments in a response file, so the file is rewritten too.
 
 # Build tools run the compiler outside the repository (e.g. meson in /tmp),
 # where aqua cannot find .aqua/aqua.yml from the working directory.
@@ -14,10 +19,19 @@ AQUA_GLOBAL_CONFIG="$(cd "$(dirname "$0")/../.." && pwd)/.aqua/aqua.yml${AQUA_GL
 export AQUA_GLOBAL_CONFIG
 
 link=1
-for arg in "$@"; do
+for arg; do
+	shift
 	case "${arg}" in
 	-c | -E | -S | -M | -MM) link= ;;
+	*--dynamic-list=*) arg="${arg%%--dynamic-list=*}--export-dynamic" ;;
+	@*)
+		if grep -q -e '--dynamic-list=' "${arg#@}" 2>/dev/null; then
+			sed "s/--dynamic-list=[^[:space:]'\"]*/--export-dynamic/g" "${arg#@}" >"${arg#@}.zig"
+			arg="${arg}.zig"
+		fi
+		;;
 	esac
+	set -- "$@" "${arg}"
 done
 
 if [ -n "${link}" ]; then
