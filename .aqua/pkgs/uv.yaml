@@ -1,4 +1,4 @@
 packages:
-- name: astral-sh/uv@0.13.0
+- name: astral-sh/uv@0.13.1
   tags:
   - uv
