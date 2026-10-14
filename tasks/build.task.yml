@@ -188,7 +188,7 @@ tasks:
     - cmd: coreutils mkdir -p '{{.DL_DIR}}'
       silent: true
     # TODO: which curl command
-    - curl -fsSLo '{{.DL_DIR}}/{{.FILE}}.tmp' '{{.URL}}'
+    - curl -fsSL --retry 5 --retry-all-errors -o '{{.DL_DIR}}/{{.FILE}}.tmp' '{{.URL}}'
     - coreutils mv '{{.DL_DIR}}/{{.FILE}}.tmp' '{{.DL_DIR}}/{{.FILE}}'
 
   extract:
@@ -245,7 +245,7 @@ tasks:
       vars:
         NAME: 'pixman-{{.PIXMAN_VERSION}}'
         FILE: 'pixman-{{.PIXMAN_VERSION}}.tar.gz'
-        URL: 'https://cairographics.org/releases/pixman-{{.PIXMAN_VERSION}}.tar.gz'
+        URL: 'https://gitlab.freedesktop.org/pixman/pixman/-/archive/pixman-{{.PIXMAN_VERSION}}/pixman-pixman-{{.PIXMAN_VERSION}}.tar.gz'
     - task: extract
       vars:
         NAME: 'libslirp-{{.LIBSLIRP_VERSION}}'

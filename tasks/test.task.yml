@@ -120,7 +120,7 @@ tasks:
     - cmd: coreutils mkdir -p '{{.DL_DIR}}'
       silent: true
     # TODO: which curl command
-    - curl -fsSLo '{{.DL_DIR}}/{{.FILE}}.tmp' '{{.URL}}'
+    - curl -fsSL --retry 5 --retry-all-errors -o '{{.DL_DIR}}/{{.FILE}}.tmp' '{{.URL}}'
     - >-
       echo '{{index .ALPINE_SHA256 .FILE}}  {{.DL_DIR}}/{{.FILE}}.tmp'
       | coreutils sha256sum -c --quiet
