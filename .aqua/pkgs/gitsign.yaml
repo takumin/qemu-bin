@@ -1,4 +1,4 @@
 packages:
-- name: sigstore/gitsign@v0.17.1
+- name: sigstore/gitsign@v0.18.0
   tags:
   - gitsign
