@@ -1,4 +1,4 @@
 packages:
-- name: cli/cli@v2.103.0
+- name: cli/cli@v2.103.2
   tags:
   - gh
