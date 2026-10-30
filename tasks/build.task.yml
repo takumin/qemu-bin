@@ -27,7 +27,7 @@ vars:
   # renovate: datasource=gitlab-tags depName=pixman/pixman registryUrl=https://gitlab.freedesktop.org extractVersion=^pixman-(?<version>.+)$
   PIXMAN_VERSION: '0.46.4'
   # renovate: datasource=gitlab-tags depName=slirp/libslirp registryUrl=https://gitlab.freedesktop.org extractVersion=^v(?<version>.+)$
-  LIBSLIRP_VERSION: '4.9.5'
+  LIBSLIRP_VERSION: '4.9.7'
   # renovate: datasource=git-tags depName=dtc packageName=https://git.kernel.org/pub/scm/utils/dtc/dtc.git extractVersion=^v(?<version>.+)$
   DTC_VERSION: '1.8.1'
   # renovate: datasource=forgejo-tags depName=jmoyer/libaio registryUrl=https://codeberg.org extractVersion=^libaio-(?<version>.+)$
