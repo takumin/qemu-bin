@@ -19,7 +19,7 @@ vars:
   # renovate: datasource=github-releases depName=madler/zlib extractVersion=^v(?<version>.+)$
   ZLIB_VERSION: '1.4'
   # renovate: datasource=github-releases depName=libffi/libffi extractVersion=^v(?<version>.+)$
-  LIBFFI_VERSION: '3.8.1'
+  LIBFFI_VERSION: '3.8.2'
   # renovate: datasource=github-releases depName=PCRE2Project/pcre2 extractVersion=^pcre2-(?<version>.+)$
   PCRE2_VERSION: '10.49'
   # renovate: datasource=gitlab-tags depName=GNOME/glib registryUrl=https://gitlab.gnome.org
